@@ -47,5 +47,13 @@ public static class Extensions
         }
 
         builder.Services.AddScoped<ICatalogAI, CatalogAI>();
+
+        // Redis for browsing history
+        builder.AddRedisClient("redis");
+
+        // Recommendation services
+        builder.Services.AddOptions<RecommendationOptions>()
+            .BindConfiguration(nameof(RecommendationOptions));
+        builder.Services.AddScoped<IRecommendationService, RecommendationService>();
     }
 }
