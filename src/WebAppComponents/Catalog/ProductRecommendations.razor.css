@@ -1,0 +1,87 @@
+﻿.product-recommendations {
+    margin: 3rem 0;
+    padding: 2rem 0;
+    border-top: 1px solid #e0e0e0;
+}
+
+.product-recommendations h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    color: #333;
+}
+
+.recommendations-carousel {
+    display: flex;
+    gap: 1.5rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 1rem;
+    -webkit-overflow-scrolling: touch;
+}
+
+.recommendations-carousel::-webkit-scrollbar {
+    height: 6px;
+}
+
+.recommendations-carousel::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+}
+
+.recommendation-card {
+    flex: 0 0 200px;
+    scroll-snap-align: start;
+    text-decoration: none;
+    color: inherit;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.recommendation-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.recommendation-card img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+}
+
+.recommendation-card h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    height: 2.85em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.recommendation-card .price {
+    font-weight: 600;
+    color: #d32f2f;
+    font-size: 1.1rem;
+}
+
+@media only screen and (max-width: 480px) {
+    .product-recommendations {
+        margin: 2rem 0;
+        padding: 1.5rem 0;
+    }
+
+    .recommendation-card {
+        flex: 0 0 160px;
+    }
+
+    .recommendation-card img {
+        height: 160px;
+    }
+}

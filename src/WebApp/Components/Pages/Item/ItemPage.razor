@@ -4,6 +4,7 @@
 @inject BasketState BasketState
 @inject NavigationManager Nav
 @inject IProductImageUrlProvider ProductImages
+@using eShop.WebAppComponents.Catalog
 
 @if (item is not null)
 {
@@ -51,6 +52,11 @@
             }
         </div>
     </div>
+
+    @if (isLoggedIn)
+    {
+        <ProductRecommendations CurrentItemId="@ItemId" MaxItems="10" />
+    }
 }
 else if (notFound)
 {
@@ -84,6 +90,26 @@ else if (notFound)
         {
             HttpContext!.Response.StatusCode = 404;
             notFound = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && isLoggedIn && item is not null)
+        {
+            _ = RecordProductViewAsync();
+        }
+    }
+
+    private async Task RecordProductViewAsync()
+    {
+        try
+        {
+            await CatalogService.RecordProductView(ItemId);
+        }
+        catch (Exception)
+        {
+            // Silently fail - view tracking is not critical
         }
     }
 

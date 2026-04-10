@@ -1,0 +1,47 @@
+﻿@using eShop.WebAppComponents.Item
+@inject CatalogService CatalogService
+@inject IProductImageUrlProvider ProductImages
+
+@if (recommendations.Any())
+{
+    <section class="product-recommendations">
+        <h2>You might also like</h2>
+        <div class="recommendations-carousel">
+            @foreach (var item in recommendations)
+            {
+                <a href="@ItemHelper.Url(item)" class="recommendation-card" data-enhance-nav="false">
+                    <img src="@ProductImages.GetProductImageUrl(item)" alt="@item.Name" />
+                    <h3>@item.Name</h3>
+                    <span class="price">$@item.Price.ToString("0.00")</span>
+                </a>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private List<CatalogItem> recommendations = new();
+
+    [Parameter, EditorRequired]
+    public int CurrentItemId { get; set; }
+
+    [Parameter]
+    public int MaxItems { get; set; } = 10;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var result = await CatalogService.GetRecommendations(0, MaxItems);
+            recommendations = result.Data
+                .Where(r => r.Id != CurrentItemId)
+                .Take(MaxItems)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            // Fail silently - recommendations are not critical
+            recommendations = new();
+        }
+    }
+}

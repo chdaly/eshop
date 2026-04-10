@@ -49,6 +49,21 @@ public class CatalogService(HttpClient httpClient) : ICatalogService
         return result!;
     }
 
+    public async Task RecordProductView(int itemId)
+    {
+        var uri = $"{remoteServiceBaseUrl}recommendations/view";
+        var request = new { ItemId = itemId };
+        var response = await httpClient.PostAsJsonAsync(uri, request);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<CatalogResult> GetRecommendations(int pageIndex, int pageSize)
+    {
+        var uri = $"{remoteServiceBaseUrl}recommendations?pageIndex={pageIndex}&pageSize={pageSize}";
+        var result = await httpClient.GetFromJsonAsync<CatalogResult>(uri);
+        return result!;
+    }
+
     private static string GetAllCatalogItemsUri(string baseUri, int pageIndex, int pageSize, int? brand, int? type)
     {
         string filterQs = string.Empty;
