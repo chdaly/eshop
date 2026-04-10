@@ -34,9 +34,9 @@ public static class RecommendationApi
     public static async Task<Results<NoContent, NotFound, BadRequest<ProblemDetails>, UnauthorizedHttpResult>> RecordView(
         HttpContext httpContext,
         CatalogContext context,
-        IRecommendationService recommendationService,
+        [FromServices] IRecommendationService recommendationService,
         ILogger<RecommendationService> logger,
-        RecordProductViewRequest request)
+        [FromBody] RecordProductViewRequest request)
     {
         if (request.ItemId <= 0)
         {
@@ -77,7 +77,7 @@ public static class RecommendationApi
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
     public static async Task<Results<Ok<PaginatedItems<CatalogItem>>, UnauthorizedHttpResult>> GetRecommendations(
         HttpContext httpContext,
-        IRecommendationService recommendationService,
+        [FromServices] IRecommendationService recommendationService,
         [AsParameters] PaginationRequest paginationRequest)
     {
         var userId = httpContext.User.FindFirst("sub")?.Value;

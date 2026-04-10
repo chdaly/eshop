@@ -34,11 +34,13 @@ public sealed class RecommendationServiceTests : IDisposable
         _logger = Substitute.For<ILogger<RecommendationService>>();
         _options = Options.Create(new RecommendationOptions());
 
-        // Use DI to construct CatalogContext (bypasses 'required' member constraint)
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
-        services.AddDbContext<CatalogContext>(options =>
-            options.UseInMemoryDatabase(databaseName: $"TestCatalog_{Guid.NewGuid()}"));
+        services.AddSingleton(new DbContextOptionsBuilder<CatalogContext>()
+            .UseInMemoryDatabase(databaseName: $"TestCatalog_{Guid.NewGuid()}")
+            .Options);
+        services.AddScoped<CatalogContext>(sp =>
+            ActivatorUtilities.CreateInstance<TestCatalogContext>(sp));
         _serviceProvider = services.BuildServiceProvider();
         _context = _serviceProvider.GetRequiredService<CatalogContext>();
 
@@ -76,22 +78,18 @@ public sealed class RecommendationServiceTests : IDisposable
         // Assert — verify LPUSH was called with the correct key pattern
         await _redisDb.Received(1).ListLeftPushAsync(
             Arg.Is<RedisKey>(k => k.ToString() == $"browsing_history:{userId}"),
-            Arg.Any<RedisValue>(),
-            Arg.Any<When>(),
-            Arg.Any<CommandFlags>());
+            Arg.Any<RedisValue>());
 
         // Assert — verify LTRIM was called to cap history length
         await _redisDb.Received(1).ListTrimAsync(
             Arg.Is<RedisKey>(k => k.ToString() == $"browsing_history:{userId}"),
-            0,
             Arg.Any<long>(),
-            Arg.Any<CommandFlags>());
+            Arg.Any<long>());
 
         // Assert — verify EXPIRE was called to set TTL
         await _redisDb.Received(1).KeyExpireAsync(
             Arg.Is<RedisKey>(k => k.ToString() == $"browsing_history:{userId}"),
-            Arg.Any<TimeSpan?>(),
-            Arg.Any<CommandFlags>());
+            Arg.Any<TimeSpan?>());
     }
 
     [Fact]
@@ -171,5 +169,18 @@ public sealed class RecommendationServiceTests : IDisposable
     {
         _context.Dispose();
         _serviceProvider.Dispose();
+    }
+
+    /// <summary>
+    /// Test-specific CatalogContext that excludes the pgvector Embedding property,
+    /// which is not supported by the InMemory database provider.
+    /// </summary>
+    private class TestCatalogContext(DbContextOptions<CatalogContext> options, IConfiguration config)
+        : CatalogContext(options, config)
+    {
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            builder.Entity<CatalogItem>().Ignore(c => c.Embedding);
+        }
     }
 }
