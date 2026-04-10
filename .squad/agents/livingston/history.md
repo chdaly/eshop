@@ -70,3 +70,52 @@
 - **Pattern**: ViewModel-focused unit tests
 - **Mocks**: BasketMockService, CatalogMockService, OrderMockService, IdentityMockService
 - **Coverage**: Command existence, property initialization, async initialization, property change notifications, filter clearing
+
+### Product Recommendations Frontend (2026-04-10)
+
+**Created:**
+- `src/WebAppComponents/Catalog/ProductRecommendations.razor` — Reusable horizontal carousel component with [EditorRequired] CurrentItemId, MaxItems param (default 10). Fetches from CatalogService.GetRecommendations(), filters out current item client-side, fails silently on errors.
+- `src/WebAppComponents/Catalog/ProductRecommendations.razor.css` — Scoped CSS using flex + overflow-x: auto + scroll-snap-type for horizontal scrolling. Cards have hover translateY(-4px) + box-shadow effect. Price in red (#d32f2f). Responsive breakpoint at 480px.
+
+**Modified:**
+- `src/WebAppComponents/Services/ICatalogService.cs` — Added `RecordProductView(int itemId)` and `GetRecommendations(int pageIndex, int pageSize)` method signatures.
+- `src/WebAppComponents/Services/CatalogService.cs` — Implemented both methods: POST to `recommendations/view` with JSON body, GET from `recommendations?pageIndex=&pageSize=`.
+- `src/WebApp/Components/Pages/Item/ItemPage.razor` — Added ProductRecommendations component below product details (isLoggedIn guard), added OnAfterRenderAsync for fire-and-forget RecordProductView on first render.
+
+**Patterns followed:**
+- Used `ItemHelper.Url(item)` for product links (matching CatalogListItem pattern)
+- Used `[Parameter, EditorRequired]` for required params (matching CatalogListItem pattern)
+- Used `data-enhance-nav="false"` on product links (matching CatalogListItem pattern)
+- Injected `IProductImageUrlProvider` for image URLs (matching existing pattern)
+- Service methods follow existing URL construction and async/await patterns in CatalogService
+
+### 2026-04-10: Recommendations Feature Frontend Implementation
+
+**Team Work - Frontend Developer**
+Built ProductRecommendations carousel component and integrated recommendations display into ItemPage, following Rusty's architecture and coordinating with Linus (backend) and Basher (testing).
+
+**Component Development:**
+- ProductRecommendations.razor — Reusable horizontal carousel with [EditorRequired] CurrentItemId parameter, MaxItems config (default 10), automatic current-item filtering, silent error handling
+- CSS with flexbox + overflow-x: auto + scroll-snap-type for smooth horizontal scrolling
+- Hover effects: translateY(-4px) with box-shadow, price highlight (#d32f2f)
+- Responsive breakpoint at 480px for mobile optimization
+- Component designed for reuse in HybridApp (MAUI Blazor wrapper)
+
+**Service Layer Updates:**
+- ICatalogService.cs — Added two method signatures: RecordProductView(int itemId), GetRecommendations(int pageIndex, int pageSize)
+- CatalogService.cs — Implemented POST to /api/v1.0/recommendations/view with JSON body, GET from /api/v1.0/recommendations with query parameters
+- URL construction and async/await follow existing CatalogService patterns
+
+**Page Integration:**
+- ItemPage.razor — Added ProductRecommendations component below product details with isLoggedIn guard
+- OnAfterRenderAsync hook for fire-and-forget RecordProductView call on first render
+- Navigation links use ItemHelper.Url() matching CatalogListItem pattern
+- Image URLs via IProductImageUrlProvider abstraction
+
+**Patterns:**
+- [Parameter, EditorRequired] for component required parameters (CatalogListItem style)
+- data-enhance-nav="false" on internal product links
+- Fire-and-forget view recording to avoid UX blocking
+- Component error resilience with silent failures
+
+**Outcome:** Frontend integrated and committed, builds clean, ready for end-to-end testing.

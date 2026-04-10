@@ -69,3 +69,37 @@ Infrastructure with NO tests:
 - GlobalUsings.cs files reduce boilerplate
 - Functional tests use IClassFixture<T> for shared test context
 - Tests validate both success and error scenarios (HTTP status codes, exceptions)
+
+### 2026-04-10: Recommendations Feature Test Coverage
+
+**Team Work - Testing Developer**
+Wrote comprehensive test suite for product recommendations feature following Rusty's architecture, coordinating with Linus (backend) and Livingston (frontend).
+
+**Functional Tests (xUnit) - RecommendationApiTests.cs:**
+1. GetRecommendations_WithAuthenticatedUser_ReturnsRecommendations — Happy path with AI embeddings
+2. GetRecommendations_WithUnauthenticatedUser_ReturnsBadRequest — Authentication validation
+3. GetRecommendations_WithEmptyHistory_ReturnsFallbackItems — Fallback to same CatalogType
+4. GetRecommendations_WithNoHistory_ReturnNewestItems — Fallback to newest items
+5. RecordView_WithValidItemId_UpdatesHistory — View recording persistence
+6. GetRecommendations_WithAiDisabled_ReturnsFallback — Graceful AI degradation
+
+**Unit Tests (MSTest) - RecommendationServiceTests.cs:**
+1. GetCentroidEmbedding_WithMultipleItems_CalculatesAverage — Centroid algorithm correctness
+2. FilterExcludedItems_RemovesViewedAndOutOfStock — Exclusion logic (viewed items, AvailableStock <= 0)
+3. GetRecommendations_AppliesPaginationCorrectly — Pagination bounds (pageIndex, pageSize)
+4. RecordViewAsync_ObservesTtlAndCapLimits — Redis constraints (50-item cap, 30-day TTL)
+
+**Test Infrastructure:**
+- Functional tests use CatalogApiFixture with Aspire Hosting for real PostgreSQL container
+- Unit tests use NSubstitute mocks for dependencies (IRecommendationService, CatalogContext, Redis)
+- Both test classes follow existing patterns from Catalog.FunctionalTests
+- Error scenarios and edge cases covered (auth failures, empty results, disabled AI)
+
+**Coverage:**
+- API endpoint authorization and error handling
+- Algorithm correctness (centroid calculation)
+- Fallback chain execution
+- Redis persistence and TTL/capacity constraints
+- Pagination implementation
+
+**Outcome:** All 10 tests compile successfully. Tests ready for CI/CD execution with Aspire environment. No code changes needed.

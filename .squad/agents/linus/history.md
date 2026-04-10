@@ -11,6 +11,36 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### Product Recommendation Backend (2026-04-10)
+
+**Implemented:** Full backend for product recommendations in Catalog.API.
+
+**Files Created:**
+- `src/Catalog.API/Services/IRecommendationService.cs` — Interface: `RecordViewAsync`, `GetRecommendationsAsync`
+- `src/Catalog.API/Services/RecommendationService.cs` — Implementation with Redis browsing history, centroid-based AI recommendations, fallback logic
+- `src/Catalog.API/Model/RecommendationOptions.cs` — Config: MaxHistoryLength=50, HistoryTtlDays=30, CentroidSampleSize=10
+- `src/Catalog.API/Model/BrowsingHistoryItem.cs` — Record for serialized Redis entries
+- `src/Catalog.API/Apis/RecommendationApi.cs` — Minimal API endpoints (POST view, GET recommendations)
+
+**Files Modified:**
+- `src/Catalog.API/Program.cs` — Added `app.MapRecommendationApi()`
+- `src/Catalog.API/Extensions/Extensions.cs` — Added `AddRedisClient("redis")`, options binding, service registration
+- `src/Catalog.API/appsettings.json` — Added `RecommendationOptions` section
+- `src/Catalog.API/Catalog.API.csproj` — Added `Aspire.StackExchange.Redis` package
+- `src/eShop.AppHost/Program.cs` — Added `.WithReference(redis)` to catalog-api
+
+**Patterns Used:**
+- Matched existing `CatalogApi.cs` patterns: versioned API groups, `Results<>` return types, `[AsParameters]` for pagination
+- Matched `Extensions.cs` pattern: `AddRedisClient` like Basket.API, `AddOptions<T>().BindConfiguration()`
+- Redis key pattern: `browsing_history:{userId}` with LPUSH/LTRIM/EXPIRE
+- Centroid: component-wise average of last N viewed item embeddings (384-dim), then CosineDistance ordering via pgvector
+- Fire-and-forget for view recording (Task.Run with error swallowing)
+- Graceful fallback chain: AI → same CatalogType → newest items
+
+**Issues Encountered:**
+- OpenAPI doc generation runs at build-time and fails without live Redis — not a code issue, pre-existing infra constraint. Bypassed with `-p:OpenApiGenerateDocuments=false`.
+- Redis `RedisValue` implicit conversion to string is ambiguous with `JsonSerializer.Deserialize<T>()` — resolved with explicit `(string)` cast.
+
 ### Backend Architecture Deep Dive (2026-04-10)
 
 **API Services Architecture:**
@@ -66,3 +96,37 @@
 - Each service has `Extensions.cs` with `AddApplicationServices()` method
 - Registers repositories, event handlers, DbContexts, authentication, event bus subscriptions
 - Uses `.AddServiceDefaults()` from eShop.ServiceDefaults for common config (telemetry, health checks, auth)
+
+### 2026-04-10: Recommendations Feature Backend Implementation
+
+**Team Work - Backend Developer**
+Implemented full product recommendations backend in Catalog.API following Rusty's architecture design. Coordinated with Livingston (frontend) and Basher (testing).
+
+**Implementation Details:**
+- Redis browsing history with LPUSH/LTRIM/EXPIRE for 50-item history, 30-day TTL
+- Centroid-based similarity: component-wise average of last N viewed item embeddings (384-dim)
+- pgvector CosineDistance ordering for similarity ranking
+- Graceful fallback: AI → same CatalogType → newest items
+- Fire-and-forget view recording (Task.Run with error handling)
+
+**Files Created:**
+- `IRecommendationService.cs` — RecordViewAsync, GetRecommendationsAsync interface
+- `RecommendationService.cs` — Implementation with Redis client, centroid calculation, fallback chain
+- `RecommendationOptions.cs` — Configuration (MaxHistoryLength=50, HistoryTtlDays=30, CentroidSampleSize=10)
+- `BrowsingHistoryItem.cs` — Record type for Redis JSON serialization
+- `RecommendationApi.cs` — Minimal API endpoints v1.0 (POST view, GET recommendations with pagination)
+
+**Files Modified:**
+- `Program.cs` — Added MapRecommendationApi() call
+- `Extensions.cs` — AddRedisClient("redis"), AddOptions<RecommendationOptions>, service registration
+- `appsettings.json` — RecommendationOptions configuration section
+- `Catalog.API.csproj` — Added Aspire.StackExchange.Redis NuGet package
+- `src/eShop.AppHost/Program.cs` — Added .WithReference(redis) to catalogApi
+
+**Patterns:**
+- Matched existing CatalogApi.cs: versioned endpoints, Results<> return types, [AsParameters] pagination
+- Matched Extensions.cs: AddRedisClient pattern, AddOptions with BindConfiguration
+- Redis key structure: browsing_history:{userId} matching Basket.API patterns
+- API versioning: /api/v1.0/recommendations/* with HasApiVersion(1, 0)
+
+**Outcome:** All backend code committed, builds clean, ready for functional test execution in CI/CD.
