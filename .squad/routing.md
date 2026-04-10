@@ -6,12 +6,16 @@ How to decide who handles what.
 
 | Work Type | Route To | Examples |
 |-----------|----------|----------|
-| {domain 1} | {Name} | {example tasks} |
-| {domain 2} | {Name} | {example tasks} |
-| {domain 3} | {Name} | {example tasks} |
-| Code review | {Name} | Review PRs, check quality, suggest improvements |
-| Testing | {Name} | Write tests, find edge cases, verify fixes |
-| Scope & priorities | {Name} | What to build next, trade-offs, decisions |
+| Architecture & design | Rusty | System design, service boundaries, cross-cutting concerns |
+| Backend APIs & services | Linus | Basket, Catalog, Identity, Ordering, Webhooks API work |
+| Domain logic & data | Linus | Entity Framework, domain models, event handling |
+| Background processors | Linus | OrderProcessor, PaymentProcessor, EventBus |
+| .NET Aspire & hosting | Linus + Rusty | AppHost config, ServiceDefaults, orchestration |
+| Frontend & UI | Livingston | Blazor pages, Razor components, WebApp, ClientApp |
+| MAUI / HybridApp | Livingston | Cross-platform client, hybrid app shell |
+| Code review | Rusty | Review PRs, check quality, architectural consistency |
+| Testing | Basher | Write tests, find edge cases, verify fixes, coverage |
+| Scope & priorities | Rusty | What to build next, trade-offs, decisions |
 | Session logging | Scribe | Automatic — never needs routing |
 
 ## Issue Routing

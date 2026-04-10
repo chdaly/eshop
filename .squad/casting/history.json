@@ -1,0 +1,21 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Ocean's Eleven",
+      "assignment_id": "eshop-init-2026-04-10",
+      "used_at": "2026-04-10T14:47:06.844Z"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "eshop-init-2026-04-10": {
+      "universe": "Ocean's Eleven",
+      "agents": {
+        "lead": "Rusty",
+        "backend-dev": "Linus",
+        "frontend-dev": "Livingston",
+        "tester": "Basher"
+      },
+      "created_at": "2026-04-10T14:47:06.844Z"
+    }
+  }
+}
