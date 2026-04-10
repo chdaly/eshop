@@ -70,6 +70,27 @@ Infrastructure with NO tests:
 - Functional tests use IClassFixture<T> for shared test context
 - Tests validate both success and error scenarios (HTTP status codes, exceptions)
 
+### 2026-04-10: Recommendation Feature Test Implementation
+
+**Files Created:**
+- `tests/Catalog.FunctionalTests/AutoAuthorizeMiddleware.cs` — Conditional auth middleware for testing authenticated/anonymous endpoints
+- `tests/Catalog.FunctionalTests/RecommendationApiFixture.cs` — Aspire fixture with PostgreSQL + Redis + auth middleware
+- `tests/Catalog.FunctionalTests/RecommendationApiTests.cs` — 6 functional API tests for recommendation endpoints
+- `tests/Catalog.FunctionalTests/RecommendationServiceTests.cs` — 4 unit tests for RecommendationService
+
+**Files Modified:**
+- `tests/Catalog.FunctionalTests/Catalog.FunctionalTests.csproj` — Added NSubstitute, Redis, InMemory EF packages
+- `Directory.Packages.props` — Added Microsoft.EntityFrameworkCore.InMemory
+- `src/Catalog.API/Apis/RecommendationApi.cs` — Fixed missing [FromBody] and [FromServices] annotations (blocked OpenAPI doc generation)
+
+**Key Findings:**
+- InMemory EF Core provider cannot handle pgvector's `Vector` type — need a derived `TestCatalogContext` that overrides `OnModelCreating` to ignore the `Embedding` property
+- `CatalogContext` uses `required` DbSet properties — must use `ActivatorUtilities.CreateInstance` (not `new`) to create the test context
+- `AutoAuthorizeMiddleware` is conditional (header-based) unlike Ordering.FunctionalTests which always authenticates — enables testing both authenticated and anonymous paths with the same fixture
+- xUnit v3 uses `--filter-class` instead of `--filter` for test filtering
+- NSubstitute requires matching exact overload signatures — use minimal params (no optional `When`/`CommandFlags`) to avoid `AmbiguousArgumentsException`
+- OpenAPI build-time generation fails if DI services (like `IRecommendationService`) aren't registered in `IsBuild()` mode — add `[FromServices]` attribute explicitly
+
 ### 2026-04-10: Recommendations Feature Test Coverage
 
 **Team Work - Testing Developer**
