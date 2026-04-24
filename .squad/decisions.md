@@ -55,6 +55,20 @@ Implement product recommendations feature to improve user engagement and cross-s
 - Functional: API auth, fallback chains, exclusion rules, AI disabled mode
 - Unit: Centroid calculation, exclusion filtering, pagination, Redis constraints
 
+## 2026-04-24: Recommendations v1 Implementation Complete
+
+**Outcome:** Full-stack product recommendations feature delivered by Linus (backend), Livingston (frontend), and Basher (testing).
+
+**Decision Carried Forward:**
+- RecommendationApi endpoints require explicit parameter binding (`[FromServices]`, `[FromBody]`) for OpenAPI document generation at build time — matches patterns in existing Catalog.API endpoints
+
+**Implementation Validation:**
+- All architectural decisions from 2026-04-10 successfully implemented and tested
+- Redis browsing history pattern validated with 50-item cap and 30-day TTL
+- Centroid-based similarity algorithm verified with 31 comprehensive tests
+- Graceful degradation fallback chain tested end-to-end
+- 18 functional tests + 13 unit tests all passing
+
 ## Governance
 
 - All meaningful changes require team consensus

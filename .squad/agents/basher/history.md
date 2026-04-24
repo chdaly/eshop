@@ -185,3 +185,40 @@ Expanded from 10 to 31 total tests covering all requirements in the comprehensiv
 - Error Handling: 100% (Redis failures, AI disabled, invalid input)
 
 **Outcome:** Comprehensive test suite committed to main. 31 tests covering all v1 requirements with clear, maintainable test names that read like specifications.
+
+## Learnings
+
+### xUnit v3 and Aspire Test Patterns (2026-04-24)
+
+**Aspire Test Hosting:**
+- `IHost` setup via `builder.AddPostgres("postgres")` and `builder.AddRedis("redis")`
+- Middleware registration: Custom `AutoAuthorizeMiddleware` for conditional authentication testing
+- Fixture inheritance from `IAsyncLifetime` for setup/teardown with async database initialization
+- PostgreSQL container startup with Aspire ensures fresh state for each test class
+
+**InMemory EF Core Gotchas:**
+- InMemory provider cannot handle pgvector's `Vector` type — requires derived test context that ignores Embedding property
+- `CatalogContext` uses `required` DbSet properties — must create with `ActivatorUtilities.CreateInstance()`, not `new`
+- Builder pattern (`OnModelCreating` override) for test-specific configuration
+
+**NSubstitute Mocking Patterns:**
+- Exact overload matching required — use minimal parameters, avoid optional When/CommandFlags parameters that cause AmbiguousArgumentsException
+- Redis mocking: Mock `IDatabase` from StackExchange.Redis, use `Received()` for verification
+- Entity Framework mocking: Use `MockRepository.Create<IQueryable<T>>()` to mock DbSet behavior
+
+**xUnit v3 Specifics:**
+- Test filtering: Use `--filter-class "*ClassName"` (not `--filter=`) for targeting specific test classes
+- Theory parameters: Multiple cases parameterized via `[InlineData(...)]` attributes
+- Assertions: FluentAssertions integration with `.Should()` extension methods
+
+**Test Isolation and Async Patterns:**
+- Unique user IDs per test: `Guid.NewGuid().ToString()` to avoid cross-test Redis contamination
+- Async delays: `Task.Delay(200ms)` after fire-and-forget operations to allow completion before assertion
+- IEnumerable collection methods: Use `.Count()` extension (not `.Count` property) on PaginatedItems<T>.Data
+- Test naming: Verb_Scenario_Expected pattern (reads like specification)
+
+**Functional vs Unit Test Division:**
+- Functional: API contracts, authentication, integration with real containers (requires Docker/Aspire)
+- Unit: Algorithm correctness, configuration enforcement, edge cases (in-memory, fast, isolated)
+- Both patterns together provide comprehensive coverage with clear separation of concerns
+

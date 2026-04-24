@@ -130,3 +130,30 @@ Implemented full product recommendations backend in Catalog.API following Rusty'
 - API versioning: /api/v1.0/recommendations/* with HasApiVersion(1, 0)
 
 **Outcome:** All backend code committed, builds clean, ready for functional test execution in CI/CD.
+
+## Learnings
+
+### Backend Service Patterns (2026-04-24)
+
+**Redis Integration Pattern:**
+- Key structure: `browsing_history:{userId}` using LPUSH for prepend-only history
+- TTL enforcement: EXPIRE command after each LPUSH (30-day TTL in config)
+- Capacity limits: LTRIM after LPUSH to enforce 50-item cap (most recent items retained)
+- Serialization: JsonSerializer with explicit string cast to resolve RedisValue ambiguity
+
+**pgvector Integration:**
+- Vector embeddings stored as `Vector` type in EF Core model
+- CosineDistance operator for similarity queries: `EF.Functions.CosineDistance(p.Embedding, centroid) ascending`
+- Centroid calculation: Component-wise average of embeddings using LINQ (384-dim vectors)
+- Query performance: Single query with ordering sufficient for pagination
+
+**Service Configuration Pattern (Matches existing Extensions.cs):**
+- `AddRedisClient("redis")` with service name from Aspire
+- `AddOptions<T>().BindConfiguration("SectionName")` for config binding
+- Fire-and-forget Task.Run pattern with error swallowing for non-blocking operations
+- Graceful fallback logic: Primary → Secondary → Tertiary → Empty
+
+**Gotchas:**
+- OpenAPI generation runs at build-time and requires all DI services registered — use `[FromServices]` attribute explicitly
+- Redis `RedisValue` implicit conversion conflicts with generic `JsonSerializer.Deserialize<T>()` — explicit `(string)` cast required
+
