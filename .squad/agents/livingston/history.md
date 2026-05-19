@@ -119,3 +119,30 @@ Built ProductRecommendations carousel component and integrated recommendations d
 - Component error resilience with silent failures
 
 **Outcome:** Frontend integrated and committed, builds clean, ready for end-to-end testing.
+
+### 2026-05-19: Frontend Security Review
+
+**Role:** Frontend Developer conducting security review of client-side implementation (livingston-security agent).
+
+**Critical Security Findings:**
+- Card data exposed in JWT claims on client-side (PCI-DSS violation, player for IDOR abuse)
+- Hardcoded client secret discovered in frontend codebase (immediate credential rotation needed)
+- RequireHttpsMetadata=false disables HTTPS validation in OAuth flow (downgrade vulnerability)
+- Open redirect vulnerability in routing/navigation logic
+
+**Impact on Frontend Architecture:**
+- JWT should NOT contain sensitive PII (use server-side session instead)
+- Secrets management must be server-side only (never hardcode)
+- HTTPS metadata validation is security-critical for token exchange
+- URL validation required on all redirect parameters
+
+**Recommended Frontend Fixes:**
+1. Remove card data from JWT claims
+2. Rotate exposed client secret and move to secure credential store
+3. Enable RequireHttpsMetadata in Identity configuration
+4. Add redirect URI validation to prevent open redirects
+
+**Pattern Notes:**
+- ProductRecommendations component is isolated from these auth vulnerabilities (no PII handling)
+- ItemPage authentication state via AuthenticationStateProvider properly gates sensitive UI
+- Need to audit all AuthenticationStateProvider usage for PII handling

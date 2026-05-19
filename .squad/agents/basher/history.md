@@ -124,3 +124,29 @@ Wrote comprehensive test suite for product recommendations feature following Rus
 - Pagination implementation
 
 **Outcome:** All 10 tests compile successfully. Tests ready for CI/CD execution with Aspire environment. No code changes needed.
+
+### 2026-05-19: Security Review & Testing Gaps Analysis
+
+**Role:** QA/Testing Developer conducting security testing review (basher-security agent).
+
+**Critical Test Gaps Identified:**
+- **tempkey.jwk in git history:** Cryptographic key leaked, confirmed still present in repository (immediate remediation: key rotation, history cleanup)
+- **IDOR confirmed in testing:** GetOrderAsync vulnerability reproduced without authentication bypass
+- **No authorization tests:** CatalogApiTests lacks AutoAuthorizeMiddleware, cannot validate auth flows
+- **JWT audience claim disabled:** Misconfiguration weakens token validation strategy
+
+**Testing Infrastructure Deficiencies:**
+- CatalogApiFixture missing AutoAuthorizeMiddleware (unlike RecommendationApiFixture and OrderingApiFixture)
+- No test coverage for Catalog API authorization scenarios
+- No integration tests for JWT audience validation
+- Missing test cases for mass assignment and parameter binding security
+
+**Remediation Plan:**
+1. Remove tempkey.jwk from git history (use `git filter-branch` or similar)
+2. Rotate all signing keys immediately
+3. Add AutoAuthorizeMiddleware to CatalogApiFixture for auth testing
+4. Write authorization-specific test cases (authenticated, anonymous, invalid token scenarios)
+5. Add test case for JWT audience claim validation
+6. Add test cases for mass assignment exploitation attempts
+
+**Confidence:** Testing deficiencies confirmed reproducible. All issues have clear remediation paths with existing test infrastructure patterns to follow.

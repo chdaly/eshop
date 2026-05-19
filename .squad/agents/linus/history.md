@@ -130,3 +130,29 @@ Implemented full product recommendations backend in Catalog.API following Rusty'
 - API versioning: /api/v1.0/recommendations/* with HasApiVersion(1, 0)
 
 **Outcome:** All backend code committed, builds clean, ready for functional test execution in CI/CD.
+
+### 2026-05-19: Security Review & Catalog Auth Deep-Dive
+
+**Role:** Backend Developer conducting API security review (linus-security agent) and technical deep-dive on Catalog API authorization requirements (linus-catalog-auth-analysis agent).
+
+**Security Findings from Backend API Review:**
+- IDOR vulnerability in GetOrderAsync (no user ownership validation)
+- Catalog API endpoints lack authorization checks
+- Mass assignment vulnerability in UpdateItem endpoint
+- Webhook service exploitable for SSRF attacks
+
+**Catalog API Auth Technical Analysis:**
+- Verified all Catalog API write endpoint callers: Database seeding (no HTTP), functional tests (need fixture updates), no external write callers
+- Identified missing Identity.API configuration: No "catalog" API resource or scope defined
+- Current CatalogApiFixture lacks AutoAuthorizeMiddleware — will fail tests when auth is added
+- Confirmed TestCatalogContext InMemory EF limitation with pgvector Vector type
+- Recommended UpdateCatalogItemRequest DTO to prevent mass assignment exploitation
+
+**Implementation Recommendations:**
+1. Add "catalog" scope to Identity.API (Config.cs lines 12, 25, 66, 107, 173)
+2. Add authentication/authorization to Catalog.API Program.cs and appsettings
+3. Update CatalogApiFixture to use AutoAuthorizeStartupFilter + AutoAuthorizeMiddleware
+4. Create UpdateCatalogItemRequest DTO for safer parameter binding
+5. Update test cases with X-Test-UserId header for authenticated scenarios
+
+**Confidence Assessment:** 88% (all blockers identified, no hidden callers, infrastructure patterns validated)

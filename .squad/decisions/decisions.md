@@ -590,3 +590,397 @@ Shared library providing:
 **Document Status:** Complete — Initial exploration findings merged and deduplicated.  
 **Last Updated:** 2026-04-10  
 **Next Review:** After team discussion and prioritization of recommendations.
+
+---
+
+## Decision: RecommendationApi needs explicit parameter binding for OpenAPI
+
+**Author:** Basher (Tester)  
+**Date:** 2026-04-10  
+**Status:** Implemented
+
+### Context
+
+The `RecommendationApi.RecordView` endpoint failed OpenAPI document generation at build time because:
+1. `IRecommendationService` is not registered in the DI container during `IsBuild()` mode (the `Extensions.cs` early-returns before recommendation service registration)
+2. Without explicit `[FromServices]` and `[FromBody]` annotations, the OpenAPI generator could not infer parameter sources
+
+### Decision
+
+Added `[FromServices]` to `IRecommendationService` parameters and `[FromBody]` to `RecordProductViewRequest` in `RecommendationApi.cs`. This matches the pattern used in `CatalogServices` where `[FromServices]` is applied to `ICatalogAI`.
+
+### Impact
+
+- Fixes a build-blocking error (55 MSBuild errors from failed OpenAPI generation)
+- All team members working on Catalog.API were affected by this
+- The `Extensions.cs` `IsBuild()` early-return pattern means any new DI-registered service used in endpoint handlers needs explicit `[FromServices]` annotation
+
+---
+
+## Catalog Image Endpoint Path Inconsistency
+
+**Date:** 2026-04-10  
+**Author:** Linus (Backend Dev)  
+**Status:** Awaiting Team Decision
+
+### Problem
+
+Catalog image URLs are inconsistent across the codebase. Someone changed the Catalog.API endpoint from `/pic` to `/picture` but didn't update all consuming clients, causing image previews to fail.
+
+### Current State
+
+**Backend Endpoint:**
+- `src/Catalog.API/Apis/CatalogApi.cs:46` — `api.MapGet("/items/{id:int}/picture", ...)` (MODIFIED, uncommitted)
+
+**Files Updated to `/picture`:**
+- `src/WebApp/Program.cs:32` — Forwarder already updated (uncommitted)
+
+**Files Still Using `/pic`:**
+1. `src/eShop.AppHost/Extensions.cs:234` — Mobile BFF YARP route
+2. `src/ClientApp/Services/FixUri/FixUriService.cs:36` — MAUI ClientApp
+3. `src/HybridApp/Services/ProductImageUrlProvider.cs:8` — HybridApp
+4. `src/Catalog.API/Catalog.API.http:18,24` — Test file
+5. OpenAPI JSON files (generated)
+
+### Options
+
+**Option 1: Complete Migration to `/picture`**
+- **Pros:** More descriptive, RESTful
+- **Cons:** More changes needed, longer URL
+- **Action:** Update all 5 remaining files to use `/picture`
+
+**Option 2: Revert to `/pic`**
+- **Pros:** Shorter URL, minimal changes (most files already use it)
+- **Cons:** Less descriptive
+- **Action:** Revert CatalogApi.cs and WebApp/Program.cs to `/pic`
+
+### Recommendation
+
+**Revert to `/pic`** — it's shorter, simpler, and already used in most places. The incomplete migration to `/picture` appears to be accidental.
+
+### Impact
+
+- **WebApp:** Already updated, needs revert or keep as-is depending on decision
+- **Mobile BFF:** Needs update (either way)
+- **ClientApp/HybridApp:** Needs update (either way)
+- **Test files:** Minor update needed
+
+### Next Steps
+
+Team should decide:
+1. Which path to standardize on (`/pic` or `/picture`)
+2. Assign someone to update all affected files
+3. Add integration test to prevent future path mismatches
+
+---
+
+## Decision: Product Recommendations Architecture
+
+**Date:** 2026-04-10  
+**Author:** Rusty (Lead Architect)  
+**Status:** Approved  
+**Impacts:** Catalog.API, WebApp, Infrastructure (Redis)
+
+### Context
+
+Adding a product recommendation feature to eShop to demonstrate AI-driven personalization using existing embedding infrastructure.
+
+### Decisions
+
+#### 1. Service Placement: Add to Catalog.API (not a new microservice)
+
+**Why:**
+- Recommendations are tightly coupled to catalog data (items, embeddings, CatalogContext)
+- No independent scaling requirements distinct from catalog operations
+- For a reference app, avoiding over-engineering demonstrates appropriate service boundaries
+- Can reuse existing infrastructure (CatalogAI, pgvector, CatalogContext)
+
+**Alternative Considered:** Separate Recommendations.API microservice
+- **Rejected:** Adds unnecessary complexity for teaching purposes; recommendations don't have distinct scaling/deployment needs
+
+#### 2. Storage: Redis for Browsing History
+
+**Why:**
+- Redis is already deployed (used by Basket.API)
+- Fast read/write for high-frequency events (every product view)
+- Built-in expiration (TTL) handles data retention automatically
+- Simple data structure (LIST for chronological order)
+- No schema migrations needed
+
+**Schema:**
+```
+Key: browsing_history:{userId}
+Type: LIST
+Value: JSON objects {"itemId": 42, "timestamp": "2026-04-10T14:23:00Z"}
+TTL: 30 days (sliding window)
+Max Length: 50 items (LTRIM after each write)
+```
+
+**Alternative Considered:** PostgreSQL table
+- **Rejected:** Adds DB load for write-heavy workload; requires migrations; slower than Redis for this use case
+
+#### 3. Recommendation Algorithm: Embedding Centroid with Business Rules
+
+**Algorithm:**
+1. Fetch user's browsing history (last 10 items)
+2. Retrieve embeddings for those items
+3. Compute centroid (average vector)
+4. Query CatalogItems by cosine similarity to centroid
+5. Exclude: viewed items, out-of-stock items
+6. Return top N results
+
+**Fallback (AI disabled):**
+- Recommend items from same CatalogType as most recent view
+- If no history, recommend newest items
+
+**Why:**
+- Leverages existing pgvector embeddings (no new infrastructure)
+- Centroid approach balances multiple user interests
+- Simple to understand and explain (good for reference app)
+- Graceful degradation when AI is unavailable
+
+**Alternative Considered:** Collaborative filtering, neural recommenders
+- **Rejected:** Too complex for a reference app; harder to explain; requires external dependencies
+
+#### 4. User Scope (v1): Authenticated Users Only
+
+**Why:**
+- Simplifies implementation (no session management, cookie consent, GDPR complexity)
+- Reduces scope for initial release
+- Anonymous users can be added in v2 with session-based tracking
+
+**Implication:** Anonymous users see no recommendations in v1
+
+#### 5. Feature Flag: Inherit from ICatalogAI.IsEnabled (no separate flag)
+
+**Why:**
+- Recommendations are a natural extension of semantic search (same AI dependency)
+- Avoids config proliferation
+- Fallback logic ensures feature works even when AI is disabled
+
+#### 6. API Design: RESTful endpoints on Catalog.API
+
+**Endpoints:**
+- `POST /api/catalog/recommendations/view` - Record a product view (204 No Content)
+- `GET /api/catalog/recommendations` - Get personalized recommendations (paginated)
+
+**Why:**
+- Consistent with existing Catalog.API patterns (versioning, pagination, error handling)
+- RESTful and stateless
+- Uses existing authentication (JWT bearer tokens)
+
+#### 7. Frontend Placement: Carousel Component on Product Detail Page
+
+**Component:** `<ProductRecommendations>` below product details  
+**Display:** Horizontal scrolling carousel with product cards
+
+**Why:**
+- Natural placement - users scroll down after viewing item
+- Non-intrusive (doesn't block primary content)
+- Mobile-friendly (touch scroll with snap points)
+- Reusable component (can be added to other pages later)
+
+### Consequences
+
+**Positive:**
+- ✅ Fast implementation (leverages existing infrastructure)
+- ✅ Demonstrates AI integration without complexity
+- ✅ Graceful degradation (works with or without AI)
+- ✅ Scalable storage (Redis)
+- ✅ Good teaching example (appropriate service boundaries, fallback patterns)
+
+**Negative:**
+- ❌ v1 excludes anonymous users (deferred to v2)
+- ❌ Simple algorithm (centroid) may be less accurate than advanced ML
+- ❌ Redis dependency (but already in stack)
+
+**Risks:**
+- Redis unavailable → RecordView fails silently, GetRecommendations uses fallback
+- Cold start (no history) → Show newest/popular items (acceptable UX)
+
+### Next Steps
+
+1. **Linus (Backend):** Implement RecommendationService, endpoints, Redis integration
+2. **Livingston (Frontend):** Build ProductRecommendations component, wire up API calls
+3. **Basher (QA):** Write functional tests, execute manual test plan
+4. **Team:** Review implementation against this design doc
+
+### References
+
+- Architecture Doc: `docs/recommendations-design.md`
+- Existing AI Infrastructure: `src/Catalog.API/Services/CatalogAI.cs`
+- Redis Integration: Similar to `src/Basket.API` (gRPC-based basket service)
+- Frontend Pattern: `src/WebApp/Services/BasketState.cs` (state management example)
+
+**Decision Log Entry**  
+This decision represents the agreed-upon approach for v1 of product recommendations. Future iterations may revisit user scope, algorithm sophistication, and feature flags based on usage data.
+
+---
+
+## Catalog API Authentication/Authorization Technical Analysis
+
+**Analyst:** Linus (Backend Developer)  
+**Date:** 2026-04-16  
+**Purpose:** Deep technical analysis to inform implementation plan for adding authentication/authorization to Catalog API write operations
+
+### 1. All Callers of Catalog API Write Endpoints
+
+#### Database Seeding (NOT an HTTP caller)
+- **File:** `src\Catalog.API\Infrastructure\CatalogContextSeed.cs:71`
+- **Pattern:** Direct database writes via `context.CatalogItems.AddRangeAsync(catalogItems)`
+- **Impact:** ✅ **No authentication concern** - seeds via EF Core directly, not through HTTP endpoints
+
+#### Functional Tests
+**File:** `tests\Catalog.FunctionalTests\CatalogApiTests.cs`
+- **Status:** 🔴 **Tests will break** when auth is added. CatalogApiFixture does NOT use `AutoAuthorizeMiddleware`
+
+#### External Service Callers
+- **WebApp:** Only read operations
+- **Mobile/Hybrid Apps:** Only read operations
+- **Impact:** ✅ **No write operations**
+
+### 2. Existing Auth Pattern in the Codebase
+
+#### Ordering.API Pattern (Reference Implementation)
+- Uses **bare `.RequireAuthorization()`** at RouteGroupBuilder level
+- Identity configured via appsettings with Audience pattern
+
+#### RecommendationApi Pattern (SAME Catalog.API Project!)
+- Uses **bare `.RequireAuthorization()`** at individual endpoint level
+- Extracts user ID via `httpContext.User.FindFirst("sub")?.Value`
+
+### 3. Identity.API Scopes and Roles
+
+#### Existing API Resources (MISSING CATALOG)
+```csharp
+return new List<ApiResource>
+{
+    new ApiResource("orders", "Orders Service"),
+    new ApiResource("basket", "Basket Service"),
+    new ApiResource("webhooks", "Webhooks registration Service"),
+};
+```
+🔴 **NO "catalog" resource defined**
+
+#### Existing API Scopes (MISSING CATALOG)
+```csharp
+return new List<ApiScope>
+{
+    new ApiScope("orders", "Orders Service"),
+    new ApiScope("basket", "Basket Service"),
+    new ApiScope("webhooks", "Webhooks registration Service"),
+};
+```
+🔴 **NO "catalog" scope defined**
+
+#### Required Changes to Identity.API
+To support authenticated catalog writes:
+1. Add `new ApiResource("catalog", "Catalog Service")` to GetApis()
+2. Add `new ApiScope("catalog", "Catalog Service")` to GetApiScopes()
+3. Add "catalog" to AllowedScopes for maui and webapp clients
+4. Add catalogswaggerui client for Swagger UI testing
+
+### 4. UpdateItem Mass Assignment Risk Analysis
+
+**Risk: MEDIUM**
+- Current implementation uses `SetValues(object)` which copies ALL properties including navigation properties and primary key
+- Recommended solution: Create `UpdateCatalogItemRequest` DTO to explicitly define allowable fields
+
+**Recommended DTO:**
+```csharp
+public record UpdateCatalogItemRequest(
+    [Required] string Name,
+    string? Description,
+    decimal Price,
+    string? PictureFileName,
+    int CatalogTypeId,
+    int CatalogBrandId,
+    int AvailableStock,
+    int RestockThreshold,
+    int MaxStockThreshold
+);
+```
+
+### 5. Test Infrastructure
+
+#### Current CatalogApiFixture (NO AUTH)
+- 🔴 **NO AutoAuthorizeMiddleware setup**
+- Tests use unrestricted HTTP client
+
+#### Comparison: RecommendationApiFixture (HAS AUTH)
+- ✅ Registers `IStartupFilter` with `AutoAuthorizeStartupFilter`
+- ✅ Uses `AutoAuthorizeMiddleware` to inject test user claims
+
+#### AutoAuthorizeMiddleware Pattern
+- Tests set `X-Test-UserId` header to simulate authenticated user
+- Allows testing both authenticated and anonymous scenarios
+
+#### Required Changes to CatalogApiFixture
+1. Add `AutoAuthorizeStartupFilter` registration in `ConfigureServices`
+2. Reuse existing `AutoAuthorizeMiddleware`
+3. Update tests to set `X-Test-UserId` header when calling write endpoints
+
+### 6. Recommendations Summary
+
+#### Changes Required in Identity.API
+**File:** `src\Identity.API\Configuration\Config.cs`
+1. Add catalog API resource (line 12)
+2. Add catalog scope (line 25)
+3. Add catalog to maui client scopes (line 66)
+4. Add catalog to webapp client scopes (line 107)
+5. Add catalogswaggerui client (after line 173)
+
+#### Changes Required in Catalog.API
+**File:** `src\Catalog.API\Program.cs`
+1. Add authentication: `builder.Services.AddDefaultAuthentication(builder);`
+2. Add authorization to API group: `.RequireAuthorization()`
+
+**File:** `src\Catalog.API\appsettings.json` and `appsettings.Development.json`
+1. Add Identity configuration section with Url, Audience, and Scopes
+
+**File:** `src\Catalog.API\Apis\CatalogApi.cs`
+1. Create `UpdateCatalogItemRequest` DTO to prevent mass assignment
+2. Update UpdateItem signature to use DTO
+3. Consider auto-generating Id in CreateItem instead of accepting from client
+
+#### Changes Required in Test Project
+**File:** `tests\Catalog.FunctionalTests\CatalogApiFixture.cs`
+1. Add AutoAuthorizeStartupFilter registration in ConfigureServices
+
+**File:** `tests\Catalog.FunctionalTests\CatalogApiTests.cs`
+1. Add `X-Test-UserId` header to write operation tests
+
+### 7. Implementation Risk Assessment
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Functional tests will fail | 🔴 HIGH | Update CatalogApiFixture before merging |
+| Swagger UI auth not configured | 🟡 MEDIUM | Add catalogswaggerui client to Identity.API |
+| Mass assignment in UpdateItem | 🟡 MEDIUM | Create UpdateCatalogItemRequest DTO (can defer) |
+| Client-specified Id in CreateItem | 🟡 MEDIUM | Auto-generate or validate uniqueness (can defer) |
+| Identity config missing | 🔴 HIGH | Add Identity section to appsettings |
+| Catalog scope not in Identity.API | 🔴 HIGH | Add catalog resource/scope/client configs |
+
+### 8. Auth Pattern Decision: Group-Level vs Endpoint-Level
+
+#### Recommendation for Catalog API
+**Use Group-Level Auth (like Ordering.API):**
+```csharp
+// In Program.cs
+var catalogApi = app.MapCatalogApi();
+
+// Add separate group for write operations only
+var catalogWrites = app.NewVersionedApi("CatalogWrites");
+// ... move CreateItem, UpdateItem, DeleteItemById to this group ...
+catalogWrites.RequireAuthorization();
+```
+
+**Why:**
+- All write operations should be protected (no exceptions)
+- Read operations should remain public (existing behavior)
+- Clean separation of concerns
+- Future-proof (new write endpoints automatically protected)
+
+---
+
+**Document Status:** Updated with decision inbox items and security review findings.
