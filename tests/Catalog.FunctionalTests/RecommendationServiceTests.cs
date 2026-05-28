@@ -165,6 +165,202 @@ public sealed class RecommendationServiceTests : IDisposable
         await _catalogAI.DidNotReceive().GetEmbeddingAsync(Arg.Any<CatalogItem>());
     }
 
+    [Fact]
+    public async Task GetRecommendationsAsync_ExcludesOutOfStockItems()
+    {
+        // Arrange
+        _catalogAI.IsEnabled.Returns(false);
+        _redisDb.ListRangeAsync(Arg.Any<RedisKey>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<CommandFlags>())
+            .Returns(Array.Empty<RedisValue>());
+
+        var service = CreateService();
+
+        // Act
+        var result = await service.GetRecommendationsAsync("stock-test-user", 0, 10, TestContext.Current.CancellationToken);
+
+        // Assert — Item 5 has 0 stock and should be excluded
+        Assert.NotNull(result);
+        Assert.NotNull(result.Data);
+        Assert.DoesNotContain(result.Data, item => item.Id == 5); // Item 5 has AvailableStock = 0
+        Assert.All(result.Data, item => Assert.True(item.AvailableStock > 0, $"Item {item.Id} should have stock > 0"));
+    }
+
+    [Fact]
+    public async Task GetRecommendationsAsync_PaginationCorrectlyApplied()
+    {
+        // Arrange
+        _catalogAI.IsEnabled.Returns(false);
+        _redisDb.ListRangeAsync(Arg.Any<RedisKey>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<CommandFlags>())
+            .Returns(Array.Empty<RedisValue>());
+
+        var service = CreateService();
+
+        // Act — page 0, size 2
+        var page0 = await service.GetRecommendationsAsync("pagination-user", 0, 2, TestContext.Current.CancellationToken);
+        // Act — page 1, size 2
+        var page1 = await service.GetRecommendationsAsync("pagination-user", 1, 2, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.NotNull(page0);
+        Assert.NotNull(page1);
+        var page0Count = page0.Data.Count();
+        var page1Count = page1.Data.Count();
+        Assert.True(page0Count <= 2, "Page 0 should have at most 2 items");
+        Assert.True(page1Count <= 2, "Page 1 should have at most 2 items");
+        Assert.Equal(0, page0.PageIndex);
+        Assert.Equal(1, page1.PageIndex);
+        Assert.Equal(2, page0.PageSize);
+        Assert.Equal(2, page1.PageSize);
+        
+        // Verify items are different (if both pages have data)
+        if (page0.Data.Any() && page1.Data.Any())
+        {
+            var page0Ids = page0.Data.Select(i => i.Id).ToHashSet();
+            var page1Ids = page1.Data.Select(i => i.Id).ToHashSet();
+            Assert.False(page0Ids.Overlaps(page1Ids), "Pages should contain different items");
+        }
+    }
+
+    [Fact]
+    public async Task GetRecommendationsAsync_OutOfBoundsPagination_ReturnsEmptyList()
+    {
+        // Arrange
+        _catalogAI.IsEnabled.Returns(false);
+        _redisDb.ListRangeAsync(Arg.Any<RedisKey>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<CommandFlags>())
+            .Returns(Array.Empty<RedisValue>());
+
+        var service = CreateService();
+
+        // Act — request page far beyond available data
+        var result = await service.GetRecommendationsAsync("empty-page-user", 9999, 10, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotNull(result.Data);
+        Assert.Empty(result.Data);
+    }
+
+    [Fact]
+    public async Task RecordViewAsync_ObservesHistoryCapLimit()
+    {
+        // Arrange
+        var service = CreateService();
+        var userId = "cap-test-user";
+        var config = _options.Value;
+
+        // Act — record a view
+        await service.RecordViewAsync(userId, 1, TestContext.Current.CancellationToken);
+
+        // Assert — verify LTRIM called with MaxHistoryLength - 1
+        await _redisDb.Received(1).ListTrimAsync(
+            Arg.Is<RedisKey>(k => k.ToString() == $"browsing_history:{userId}"),
+            0,
+            config.MaxHistoryLength - 1);
+    }
+
+    [Fact]
+    public async Task RecordViewAsync_SetsTtlCorrectly()
+    {
+        // Arrange
+        var service = CreateService();
+        var userId = "ttl-test-user";
+        var config = _options.Value;
+
+        // Act
+        await service.RecordViewAsync(userId, 1, TestContext.Current.CancellationToken);
+
+        // Assert — verify EXPIRE called with correct TTL
+        await _redisDb.Received(1).KeyExpireAsync(
+            Arg.Is<RedisKey>(k => k.ToString() == $"browsing_history:{userId}"),
+            Arg.Is<TimeSpan?>(ts => ts.HasValue && ts.Value == TimeSpan.FromDays(config.HistoryTtlDays)));
+    }
+
+    [Fact]
+    public async Task GetRecommendationsAsync_FallsBackToNewestWhenNoTypeMatch()
+    {
+        // Arrange — user viewed item with non-existent type
+        _catalogAI.IsEnabled.Returns(false);
+        var historyEntries = new RedisValue[]
+        {
+            "{\"ItemId\":99999,\"Timestamp\":\"2026-04-10T14:23:00Z\"}" // Non-existent item
+        };
+        _redisDb.ListRangeAsync(Arg.Any<RedisKey>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<CommandFlags>())
+            .Returns(historyEntries);
+
+        var service = CreateService();
+
+        // Act
+        var result = await service.GetRecommendationsAsync("no-type-user", 0, 10, TestContext.Current.CancellationToken);
+
+        // Assert — should fall back to newest items
+        Assert.NotNull(result);
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data.Any(), "Should return newest items when no type match");
+    }
+
+    [Fact]
+    public async Task GetRecommendationsAsync_CatalogTypeFallback_ReturnsMatchingCategory()
+    {
+        // Arrange — AI disabled, user viewed item 1 (CatalogTypeId = 1)
+        _catalogAI.IsEnabled.Returns(false);
+        var historyEntries = new RedisValue[]
+        {
+            "{\"ItemId\":1,\"Timestamp\":\"2026-04-10T14:23:00Z\"}"
+        };
+        _redisDb.ListRangeAsync(Arg.Any<RedisKey>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<CommandFlags>())
+            .Returns(historyEntries);
+
+        var service = CreateService();
+
+        // Act
+        var result = await service.GetRecommendationsAsync("type-match-user", 0, 10, TestContext.Current.CancellationToken);
+
+        // Assert — should return items from same category (CatalogTypeId = 1)
+        Assert.NotNull(result);
+        Assert.NotNull(result.Data);
+        if (result.Data.Any())
+        {
+            // Item 2 has same CatalogTypeId (1) and is in stock, should be included
+            Assert.Contains(result.Data, item => item.Id == 2);
+        }
+    }
+
+    [Fact]
+    public async Task GetRecommendationsAsync_RespectsConfiguredMaxHistoryLength()
+    {
+        // Arrange — configure custom MaxHistoryLength
+        var customOptions = Options.Create(new RecommendationOptions { MaxHistoryLength = 10 });
+        var service = new RecommendationService(_redis, _context, _catalogAI, _logger, customOptions);
+
+        // Act — record view
+        await service.RecordViewAsync("config-user", 1, TestContext.Current.CancellationToken);
+
+        // Assert — verify LTRIM called with custom limit
+        await _redisDb.Received(1).ListTrimAsync(
+            Arg.Any<RedisKey>(),
+            0,
+            9); // MaxHistoryLength - 1
+    }
+
+    [Fact]
+    public async Task GetRecommendationsAsync_RedisFailure_ReturnsNewestItems()
+    {
+        // Arrange — Redis throws exception
+        _catalogAI.IsEnabled.Returns(false);
+        _redisDb.ListRangeAsync(Arg.Any<RedisKey>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<CommandFlags>())
+            .Returns<RedisValue[]>(_ => throw new RedisException("Redis connection failed"));
+
+        var service = CreateService();
+
+        // Act
+        var result = await service.GetRecommendationsAsync("redis-fail-user", 0, 10, TestContext.Current.CancellationToken);
+
+        // Assert — should gracefully fall back to newest items
+        Assert.NotNull(result);
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data.Any(), "Should return newest items when Redis fails");
+    }
+
     public void Dispose()
     {
         _context.Dispose();

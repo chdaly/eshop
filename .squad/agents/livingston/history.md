@@ -146,3 +146,56 @@ Built ProductRecommendations carousel component and integrated recommendations d
 - ProductRecommendations component is isolated from these auth vulnerabilities (no PII handling)
 - ItemPage authentication state via AuthenticationStateProvider properly gates sensitive UI
 - Need to audit all AuthenticationStateProvider usage for PII handling
+## Learnings
+
+### Component Design Patterns (2026-04-24)
+
+**Carousel UX Implementation:**
+- Flexbox container with `overflow-x: auto` and `scroll-snap-type: x mandatory` for smooth horizontal scrolling
+- Scroll-snap-align: center on child items for natural snap points
+- Hover effects: `translateY(-4px)` with `transition: transform 200ms ease` for depth illusion
+- Price highlighting: `color: #d32f2f` (Material Design red) for visual hierarchy
+- Responsive breakpoint at 480px (max-width) for mobile optimization
+
+**Component Parameter Patterns:**
+- `[Parameter, EditorRequired]` for mandatory parameters (CurrentItemId) — compile-time validation
+- Optional parameters with sensible defaults (MaxItems=10)
+- No prop drilling — pass required context at component level
+- Component error resilience: Silent failures on API errors, empty state graceful degradation
+
+**Service Integration Pattern:**
+- ICatalogService method naming: Verb-first (RecordProductView, GetRecommendations)
+- URL construction: Relative paths using existing HttpClient base address configuration
+- Fire-and-forget async pattern: No await, Task.Run wrapper for non-blocking UX
+- Error handling: Try-catch swallowing in async methods to prevent UnobservedTaskException
+
+**ItemPage Integration:**
+- OnAfterRenderAsync hook for side-effects (view recording) — runs after render, non-blocking
+- `once: true` pattern equivalent for single execution (checked via local flag or IsFirstRender)
+- Conditional rendering guard: `@if (isLoggedIn)` to show only for authenticated users
+- Navigation pattern: `ItemHelper.Url(item)` for consistent internal links
+
+**Image URL Pattern:**
+- Abstraction: `IProductImageUrlProvider` injected into component (not hardcoded URLs)
+- Reusability: Works with both WebApp and HybridApp (MAUI) through shared library
+
+
+### 2026-04-10: Product Recommendations v1 - Verification Complete
+
+**Verification Status:**
+- All frontend components exist and are implemented correctly
+- ProductRecommendations.razor — Carousel with CurrentItemId (EditorRequired), MaxItems param (default 10), silent error handling
+- ProductRecommendations.razor.css — Flexbox horizontal scroll with scroll-snap, hover effects, responsive breakpoint at 480px
+- CatalogService — RecordProductView() and GetRecommendations() implemented with proper URL construction
+- ItemPage — Component integrated below product details with isLoggedIn guard, fire-and-forget view recording in OnAfterRenderAsync
+- Build verified: WebAppComponents and WebApp both compile successfully
+- Commit history confirmed: feat commit 9f1a5d6 includes all 5 file changes
+
+**Testing Notes for Basher:**
+- Test recommendation carousel display on ItemPage when authenticated
+- Verify view recording fires on page load (check network tab for POST to /api/v1.0/recommendations/view)
+- Test empty state handling when no recommendations available
+- Test error state handling when backend is unavailable
+- Verify carousel scrolling behavior on mobile and desktop
+- Check that current item is filtered out of recommendations display
+- Validate MaxItems parameter behavior (default 10, configurable)
