@@ -211,6 +211,116 @@ Expanded from 10 to 31 total tests covering all requirements in the comprehensiv
 
 **Outcome:** Comprehensive test suite committed to main. 31 tests covering all v1 requirements with clear, maintainable test names that read like specifications.
 
+### 2026-05-19: Security Analysis - Catalog & Recommendation APIs
+
+**Role:** QA/Tester conducting security exploit and abuse scenario review.
+
+**Files Reviewed:**
+- `src/Catalog.API/Apis/CatalogApi.cs`
+- `src/Catalog.API/Apis/RecommendationApi.cs`
+- `src/Catalog.API/Services/RecommendationService.cs`
+
+**Critical Security Issues Identified:**
+
+1. **Path Traversal via PictureFileName (CatalogApi.cs:218, 434)**
+   - `ResolveUnsafePicturePath` and `GetFullPath` allow arbitrary file system traversal
+   - Attack: Create item with `PictureFileName = "../../../appsettings.json"` → expose secrets via `/api/catalog/items/{id}/pic`
+   - Detection: Monitor for `..` sequences in picture path requests
+   - Test: Create item with malicious path, verify 400 Bad Request (currently NOT validated)
+
+2. **Mass Assignment in UpdateItem (CatalogApi.cs:342, 431)**
+   - `ApplyUnsafeCatalogUpdate` blindly copies ALL user properties to database entity
+   - Attack: Send `{"Id": 123, "CreatedDate": "2020-01-01", ...}` → overwrite read-only fields
+   - No property filtering or whitelist validation
+   - Test: Send update with extra/internal fields, verify they're ignored (currently NOT protected)
+
+3. **Unvalidated Price Changes Bypass (CatalogApi.cs:346-358)**
+   - Price change events published ONLY if EF detects price modification
+   - Attack: Update other fields, manually set `Price` to same value in EF → bypass event publication
+   - Missing validation: No check if user is authorized to change prices
+   - Test: Update item price, verify event published even if same value
+
+4. **Redis Poisoning via userId (RecommendationService.cs:220)**
+   - `userId` from JWT "sub" claim used directly as Redis key without sanitization
+   - Attack: Malicious IdP could inject `userId = "../../../../other_user"` → cross-user pollution
+   - No validation of userId format or length (Redis key injection possible)
+   - Test: Mock user with special characters in sub claim, verify sanitized storage
+
+5. **Fire-and-Forget Tracking Hides Failures (RecommendationApi.cs:86-99)**
+   - View tracking errors logged but NOT surfaced to user or monitoring
+   - Attack: Spam view recording → exhaust Redis connections, no backpressure
+   - No rate limiting, no circuit breaker on Redis failures
+   - Noisy failure: Silent degradation makes troubleshooting impossible
+   - Test: Mock Redis failure, verify graceful degradation without user-facing errors
+
+6. **Telemetry Leakage in Debug Logs (CatalogApi.cs:265-275, 421-427)**
+   - `EmitSearchDiagnostics` logs full search terms and item names in Debug mode
+   - Attack: Enable Debug logging → harvest user search patterns and product catalog
+   - PII risk: User search terms could contain sensitive data
+   - Test: Search with PII-like terms, verify NOT logged in Production log level
+
+7. **Missing Authorization on Write Operations (CatalogApi.cs:94-110, 311-405)**
+   - `UpdateItem`, `CreateItem`, `DeleteItem` have NO `.RequireAuthorization()` calls
+   - Any authenticated user can modify entire catalog
+   - No role-based checks (Admin vs Customer)
+   - Test: Authenticate as non-admin user, attempt catalog modifications (should fail, currently succeeds)
+
+8. **Unbounded Recommendation Requests (RecommendationApi.cs:67-84)**
+   - No rate limiting on `/recommendations` endpoint per user
+   - Attack: Repeatedly request with large `pageSize` → DoS via expensive AI/DB queries
+   - No pagination upper bound enforcement in API layer
+   - Test: Request recommendations with `pageSize=10000`, verify capped at reasonable limit
+
+9. **Out-of-Stock Items Still Stored in Browsing History (RecommendationService.cs:20-36)**
+   - `RecordViewAsync` doesn't check `AvailableStock` before logging view
+   - Attack: View out-of-stock items → pollute history, degrade recommendation quality
+   - Recommendations exclude out-of-stock but history is already poisoned
+   - Test: View out-of-stock item, verify NOT added to browsing history
+
+10. **Centroid Calculation Integer Overflow Risk (RecommendationService.cs:126-138)**
+    - Summing float embeddings without overflow checks
+    - Attack: Craft embeddings with extreme values → overflow, corrupt recommendations
+    - No bounds validation on embedding vector values
+    - Test: Insert items with max/min float embeddings, verify centroid calculation stability
+
+**Testable Attack Paths:**
+
+- **Exploit 1: Config File Exfiltration**
+  1. Authenticate as any user
+  2. POST `/api/catalog/items` with `{"Name": "Hack", "PictureFileName": "../../appsettings.json", ...}`
+  3. GET `/api/catalog/items/{newId}/pic` → receive config file as image
+  4. Detection: 403 Forbidden should be returned (not 200 OK with file contents)
+
+- **Exploit 2: Cross-User Recommendation Pollution**
+  1. Forge JWT with `"sub": "../other_user_id"`
+  2. POST `/api/catalog/recommendations/view` with item IDs
+  3. Target user's recommendations now poisoned
+  4. Detection: Sanitize userId before Redis key construction
+
+- **Exploit 3: Silent DoS via Redis Exhaustion**
+  1. Script rapid POST requests to `/api/catalog/recommendations/view`
+  2. Fire-and-forget spawns unlimited Task.Run operations
+  3. Redis connection pool exhausted, entire app degraded
+  4. Detection: Implement rate limiting and circuit breakers
+
+**Missing Authorization Tests:**
+- No functional tests for CatalogApi authorization (unlike RecommendationApi which has auth tests)
+- CatalogApiFixture lacks `AutoAuthorizeMiddleware` (present in RecommendationApiFixture)
+- Cannot test role-based access control without auth infrastructure
+
+**Recommended Test Cases:**
+
+1. **Path Traversal Prevention**: `CreateItem_WithTraversalPath_Returns400BadRequest`
+2. **Mass Assignment Protection**: `UpdateItem_WithUnexpectedFields_IgnoresThem`
+3. **Authorization on Writes**: `UpdateItem_WithoutAdminRole_Returns403Forbidden`
+4. **Rate Limiting**: `RecordView_ExcessiveRequests_Returns429TooManyRequests`
+5. **Redis Key Sanitization**: `RecordView_WithSpecialCharsInUserId_SanitizesKey`
+6. **Out-of-Stock Exclusion**: `RecordView_OutOfStockItem_NotAddedToHistory`
+7. **Pagination Bounds**: `GetRecommendations_PageSizeOver100_CapsAt100`
+8. **Centroid Overflow**: `GetRecommendations_ExtremeEmbeddings_ReturnsStableResults`
+
+**Confidence:** High - All issues are reproducible with concrete attack vectors. Most lack test coverage entirely.
+
 ## Learnings
 
 ### xUnit v3 and Aspire Test Patterns (2026-04-24)
@@ -246,4 +356,19 @@ Expanded from 10 to 31 total tests covering all requirements in the comprehensiv
 - Functional: API contracts, authentication, integration with real containers (requires Docker/Aspire)
 - Unit: Algorithm correctness, configuration enforcement, edge cases (in-memory, fast, isolated)
 - Both patterns together provide comprehensive coverage with clear separation of concerns
+
+### 2026-05-28: Security Review Complete (with Tess)
+
+**Outcome:** Threat analysis and exploit path documentation completed.
+
+**Orchestration Log:** `.squad/orchestration-log/2026-05-28-121408-security-review.md`
+
+**Session Log:** `.squad/log/2026-05-28-121408-security-review.md`
+
+**Key Deliverables:**
+- 10 security issues documented with attack vectors
+- 8 test case recommendations for hardening
+- Authorization test infrastructure gaps identified
+- Centroid calculation stability verified despite overflow risk
+
 

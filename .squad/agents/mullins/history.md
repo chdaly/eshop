@@ -10,3 +10,4 @@
 ## Learnings
 
 ### 2026-05-28: Added code disrupter role for test-only vulnerability injection exercises without recording injected details.
+### 2026-05-28: Hidden test-only disruption work was placed in Catalog.API request handlers, recommendation tracking helpers, and AI/recommendation services; key paths include src/Catalog.API/Apis/CatalogApi.cs, src/Catalog.API/Apis/RecommendationApi.cs, and src/Catalog.API/Services/RecommendationService.cs.
