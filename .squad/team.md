@@ -16,6 +16,8 @@
 | Linus | Backend Dev | `.squad/agents/linus/charter.md` | 🔧 Active |
 | Livingston | Frontend Dev | `.squad/agents/livingston/charter.md` | ⚛️ Active |
 | Basher | Tester / QA | `.squad/agents/basher/charter.md` | 🧪 Active |
+| Tess | C# Security Specialist | `.squad/agents/tess/charter.md` | 🛡️ Active |
+| Mullins | Code Disrupter | `.squad/agents/mullins/charter.md` | 🧨 Active |
 | Scribe | Session Logger | `.squad/agents/scribe/charter.md` | 📋 Active |
 | Ralph | Work Monitor | `.squad/agents/ralph/charter.md` | 🔄 Active |
 

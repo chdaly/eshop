@@ -15,6 +15,8 @@ How to decide who handles what.
 | MAUI / HybridApp | Livingston | Cross-platform client, hybrid app shell |
 | Code review | Rusty | Review PRs, check quality, architectural consistency |
 | Testing | Basher | Write tests, find edge cases, verify fixes, coverage |
+| C# security hardening | Tess | .NET/C# security review, auth, secrets, input validation |
+| Red-team / vulnerability disruption | Mullins | Controlled vulnerability injection for test-only exercises |
 | Scope & priorities | Rusty | What to build next, trade-offs, decisions |
 | Session logging | Scribe | Automatic — never needs routing |
 
