@@ -371,4 +371,65 @@ Expanded from 10 to 31 total tests covering all requirements in the comprehensiv
 - Authorization test infrastructure gaps identified
 - Centroid calculation stability verified despite overflow risk
 
+### 2026-05-28: Security Skills Council - Critical Testing Gaps
 
+**Context:** Mullins disruption exercise revealed team **missed hidden vulnerabilities** despite comprehensive functional testing (31 tests). Security review identified issues but did NOT validate exploitability through reproducible tests.
+
+**Critical Skills Gaps Identified:**
+
+1. **Hidden Vulnerability Detection (CRITICAL)**
+   - Focused on "does it work?" not "can I break it?"
+   - Code review found issues but never attempted exploitation
+   - 31 comprehensive recommendation tests, ZERO abuse scenario tests
+   - No path traversal test: `PictureFileName = "../../../appsettings.json"`
+   - No mass assignment test: `{"Id": 123, "CreatedDate": "2020-01-01"}`
+   - No Redis key injection test: `userId = "../../other_user"`
+
+2. **Exploitation Skill Gap (HIGH)**
+   - Documented 10 security issues, recommended 8 test cases, wrote ZERO exploit tests
+   - Cannot validate if findings are exploitable without security testing skills
+   - Lack fuzzing, JWT manipulation, DoS scripting, and payload crafting skills
+
+3. **Abuse Scenario Testing (HIGH)**
+   - Tests validate "correct use" extensively (100% coverage claims)
+   - Zero tests for "incorrect use" or malicious abuse
+   - Coverage gaps: Authentication abuse (0 tests), input validation bypass (0), rate limiting (0), resource exhaustion (0), data poisoning (0)
+
+4. **Reproducible Exploit Validation (HIGH)**
+   - Security findings documented as markdown lists, not executable tests
+   - No proof-of-concept code, no CI/CD security regression testing
+   - Cannot prove vulnerabilities are exploitable or validate fixes prevent exploitation
+
+5. **Authorization Testing Infrastructure (MEDIUM)**
+   - CatalogApi fixture lacks auth infrastructure (documented gap)
+   - Cannot test role-based access control or authorization bypasses
+
+**Improvement Program Proposed:**
+- **Phase 1 (Weeks 1-2):** Adversarial testing mindset training (OWASP Top 10, JWT manipulation, fuzzing)
+- **Phase 2 (Weeks 3-4):** Exploit validation framework (`tests/Security.FunctionalTests/ExploitTests/`)
+- **Phase 3 (Weeks 5-6):** Monthly red team exercises with hidden vulnerability detection scoring
+- **Phase 4 (Ongoing):** Continuous security testing with branch protection and monthly retrospectives
+
+**Success Criteria:**
+- 100% of security findings have executable exploit tests
+- 90% detection rate for red team injected vulnerabilities
+- Security test suite covers 80% of OWASP Top 10
+- Zero security test failures in CI/CD
+
+**Team Commitments:**
+- Basher: 50% time on security testing (4 weeks)
+- Tess: Security training facilitation (20 hours)
+- Linus: Authorization infrastructure (1 week)
+- Entire Team: Mandatory training (8 hours/person)
+
+**Proposal:** Documented in `.squad/decisions/inbox/basher-security-skills-council.md` for Chris review.
+
+**Key Learning:** Functional testing excellence (31 tests) does NOT equal security testing. Testing mindset must shift from "validate correctness" to "validate unbreakability". Code review identifies issues, but only exploit tests prove they're real vulnerabilities.
+
+
+
+### 2026-06-09: Catalog Security Regression Test Patterns
+
+- Keep Docker-free security checks (reflection-based helper tests, RecommendationService unit tests, background queue lifecycle tests) in separate xUnit classes from Aspire fixture tests so they can run without a container runtime.
+- Catalog security helper coverage can target private/internal methods via reflection because `Catalog.API` exposes internals to `Catalog.FunctionalTests`; this works well for path canonicalization and log-sanitization regressions.
+- Recommendation security tests stay self-contained by combining InMemory EF Core, NSubstitute Redis doubles, and a spy `IRecommendationService` to verify queue draining and sanitized user-id handling without external infrastructure.

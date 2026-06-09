@@ -983,4 +983,115 @@ catalogWrites.RequireAuthorization();
 
 ---
 
+## Catalog.API Security Remediation — 2026-06-09 Decisions
+
+**Date:** 2026-06-09  
+**Analyst:** Tess (C# Security Specialist)  
+**Status:** Implemented & Tested  
+**Contributing Agents:** Tess (Remediation), Basher (Regression Tests)
+
+### Overview
+Following the May 2026 security review and Mullins' disruptive testing, six critical and high-severity vulnerabilities in Catalog.API were remediated with secure-by-default patterns. All fixes were implemented with comprehensive regression tests to prevent recurrence.
+
+### Vulnerabilities Fixed & Design Patterns
+
+#### 1. Path Traversal (CatalogApi.cs)
+**Risk Level:** CRITICAL  
+**Pattern:** Canonical filename validation  
+- **Before:** Direct user-supplied filename concatenation to paths
+- **After:** `CatalogSecurity.CanonicalizeFileName()` validates and normalizes all filenames
+  - Rejects absolute paths (`/etc/passwd`)
+  - Rejects traversal sequences (`..`, `./`, etc.)
+  - Allows only alphanumeric + safe characters (hyphen, underscore, dot)
+  - Safe path combination via `Path.Combine()`
+
+#### 2. Mass Assignment via SetValues() (CatalogApi.cs)
+**Risk Level:** HIGH  
+**Pattern:** Explicit property allowlist  
+- **Before:** `item.SetValues(updateCommand)` copies all properties including navigation and keys
+- **After:** `UpdateCatalogItemRequest` DTO with explicit fields only
+  - Properties: Name, Description, Price, PictureFileName, CatalogTypeId, CatalogBrandId, AvailableStock, RestockThreshold, MaxStockThreshold
+  - No navigation or identity property copying
+  - Prevents unintended field injection from client input
+
+#### 3. Cache Key Injection (RecommendationService.cs)
+**Risk Level:** HIGH  
+**Pattern:** Sanitized identifier + hashing  
+- **Before:** User ID directly embedded in cache keys (e.g., `recommendation:user@domain.com:context`)
+- **After:** SHA256-hashed identifier before cache key construction
+  - Sanitizes user identifier (removes special characters)
+  - Hashes cleaned identifier to prevent cache poisoning
+  - Validates identifier format before caching
+
+#### 4. Fire-and-Forget Async (RecommendationApi.cs)
+**Risk Level:** HIGH  
+**Pattern:** Hosted background service queue  
+- **Before:** Recommendation views tracked via unobserved `_ = trackViewAsync()` (fire-and-forget)
+- **After:** `ViewTrackingBackgroundService` (IHostedService) queues work reliably
+  - View tracking routed through in-process queue
+  - Exceptions caught and logged (no unobserved exceptions)
+  - Awaited before response returns to caller
+  - Survives application shutdown via graceful service termination
+
+#### 5. PII in Search Logs (CatalogApi.cs — Search Endpoint)
+**Risk Level:** HIGH  
+**Pattern:** Log redaction  
+- **Before:** `logger.LogInformation($"Search query: {query}, UserId: {userId}")`
+- **After:** Redact user identifiers from all logs
+  - Log only sanitized query terms and performance metrics
+  - Remove email, phone, account identifiers
+  - Preserve query intent for debugging
+
+#### 6. PII in userId Logs (Extensions.cs)
+**Risk Level:** MEDIUM  
+**Pattern:** Hashed identifier in logs  
+- **Before:** Raw userId exposed in cache/tracking flow logs
+- **After:** Hash userId before logging
+  - Use SHA256 of userId for log traces
+  - Maintains audit trail without exposing PII
+  - Same user = same hash across logs (correlation)
+  - Hash cannot be reversed to retrieve original ID
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `src/Catalog.API/Apis/CatalogApi.cs` | Path traversal validation, mass assignment fix, PII redaction |
+| `src/Catalog.API/Apis/RecommendationApi.cs` | Fire-and-forget async routed to background queue |
+| `src/Catalog.API/Services/CatalogSecurity.cs` | **NEW:** Canonicalization service for filename validation |
+| `src/Catalog.API/Services/RecommendationService.cs` | Cache key sanitization & identifier hashing |
+| `src/Catalog.API/Services/ViewTrackingBackgroundService.cs` | **NEW:** IHostedService for reliable view tracking |
+| `src/Catalog.API/Extensions/Extensions.cs` | Hashed userId logging |
+
+### Regression Test Suite (Basher)
+**Test Coverage:** 16 security regression tests, all passing
+
+| Category | Tests | Details |
+|----------|-------|---------|
+| Path Traversal | 3 | Rejection of `../`, `/etc`, valid names |
+| Mass Assignment | 2 | Allowlist enforcement, `SetValues()` rejection |
+| Cache Injection | 2 | Sanitized keys, unsafe character stripping |
+| Fire-and-Forget | 3 | Queue invocation, exception handling, awaiting |
+| PII Redaction | 3 | Email redaction, metrics logging, aggregation |
+| ID Hashing | 3 | Hashing consistency, irreversibility, tracking |
+
+### Validation Results
+- ✅ Build passes without errors
+- ✅ All 16 regression tests passing
+- ✅ No breaking API changes
+- ✅ Backward compatible with existing clients
+- ✅ No performance degradation
+
+### Reusability
+These patterns establish secure-by-default approaches for future Catalog.API changes and can be applied across other services:
+- **Canonicalization** → Any file access (uploads, imports, exports)
+- **Explicit allowlists** → Any entity update operations
+- **Background queues** → Any fire-and-forget async work
+- **Identifier hashing** → Cache keys and log tracing across services
+- **PII redaction** → Search, tracking, and audit logging
+
+### Rationale
+Fixes close six known Catalog.API vulnerabilities while preserving current API behavior. They establish reusable secure defaults for future file access, background work, cache key construction, and logging changes in this service and others.
+
+---
+
 **Document Status:** Updated with decision inbox items and security review findings.

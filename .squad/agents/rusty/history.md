@@ -147,4 +147,76 @@ Designed and documented comprehensive product recommendations feature architectu
 - Provided clear implementation roadmap for security hardening
 - Documented architectural patterns for future reference
 
+### 2026-05-28: Security Skills Enhancement Council - Consensus Proposal
+
+**Role:** Lead Architect convening cross-functional council to address security skills gaps identified in May 2026 red-team exercise.
+
+**Council Participants:**
+- **Tess (Security Specialist)**: Identified 6 critical vulnerabilities (path traversal, mass assignment, cache poisoning, unsafe async, PII logging, user input in logs)
+- **Basher (QA/Testing)**: Documented 10 exploitable attack vectors with concrete reproduction steps, provided 8 recommended hardening test cases, identified missing authorization test infrastructure
+- **Mullins (Code Disrupter)**: Injected test vulnerabilities into Catalog.API request handlers and recommendation services to support detection exercises
+- **Linus (Backend)**: Expertise on API security, secrets management, input validation patterns
+- **Livingston (Frontend)**: Expertise on client-side security, authentication flows, XSS prevention
+
+**Problem Identified:**
+While team successfully detected injected vulnerabilities through reactive analysis, we lacked:
+- Proactive security training (knowledge concentrated in Tess, not distributed)
+- Systematic detection practices (found issues only through deliberate red-team exercise)
+- Clear ownership model (no security champion per domain)
+- Continuous improvement mechanisms (no training cadence or skill progression tracking)
+
+**Consensus Proposal Delivered:**
+Comprehensive 12-month security skills enhancement program covering:
+
+**1. Training Cadence:**
+- Monthly 2-hour security deep-dives with rotating topics (OWASP Top 10, API security, infrastructure)
+- Quarterly certification checkpoints (Security Aware → Proficient → Champion progression)
+- Weekly 15-minute security stand-ups for CVE triage and tech debt tracking
+- On-demand resources library (cheat sheets, recorded sessions, daily security snippets)
+
+**2. Red-Team Exercises:**
+- Quarterly full-day vulnerability injection exercises (8-12 injected flaws, 4-hour detection sprint)
+- Balanced difficulty: 3 easy, 5 medium, 3 hard vulnerabilities per exercise
+- Scoring metrics: Detection rate (target 90%+), time to detect (<2 hours), false positive rate (<20%)
+- Monthly 30-minute "fire drill" scenarios for incident response training
+
+**3. Detection Practices:**
+- Mandatory security checklist for all PRs (developer self-review + peer verification)
+- Automated SAST in CI pipeline (Security Code Scan, Semgrep, Dependabot)
+- Security test patterns library (auth/authz, input validation, IDOR templates)
+- Pre-merge requirements: Functional tests include 401/403 scenarios, API tests validate input sanitization
+
+**4. Ownership Model:**
+- **Rusty**: Cross-cutting architecture, threat modeling, quarterly roadmap
+- **Tess**: Vulnerability research, CVE reviews, tooling, training facilitation
+- **Basher**: Security test coverage, exploit validation, red-team coordination
+- **Linus**: Backend API security, secrets management, SAST remediation
+- **Livingston**: Client-side security, CSP, authentication flows
+- **Mullins**: Red-team injection, attack simulation, emerging threat research
+- Escalation path: Detection → Triage (Tess) → Remediation (domain owner) → Validation (Basher) → Retrospective (Rusty)
+
+**5. Implementation Sequence:**
+- **Phase 1 (Months 1-2)**: Foundation - Deploy CI tooling, establish baseline literacy, run first 2 training sessions
+- **Phase 2 (Months 3-4)**: Operationalization - First red-team exercise, embed security in PR workflow, achieve Security Aware certification
+- **Phase 3 (Months 5-6)**: Maturity - Remediate SAST baseline, run Q2 red-team with 90%+ detection rate, achieve Security Proficient certification
+- **Phase 4 (Months 7-12)**: Continuous Improvement - Advanced topics, Security Champion development, sustain excellence
+
+**Success Metrics:**
+- 90% of injected vulnerabilities detected within 48 hours during quarterly exercises
+- 100% of PRs include security considerations in code review checklist
+- Zero critical security issues reach main branch undetected
+- 80% of team achieves Security Proficient certification by Month 6
+
+**Resource Investment:**
+- Time: ~73 hours/person/year (~3.5% of annual work time)
+- Tooling: Minimal cost (OSS tools + O'Reilly subscription $2K/year)
+- Optional: External penetration test in Year 2 ($15-25K)
+
+**Output:**
+- Consensus proposal written to `.squad/decisions/inbox/security-skills-consensus-proposal.md`
+- Awaiting Chris Daly approval for Phase 1 kickoff
+
+**Key Architectural Insight:**
+Security is a team capability, not individual expertise. Distributed ownership with clear escalation paths, combined with continuous skill development and realistic adversarial exercises, transforms reactive vulnerability hunting into proactive security-by-design culture.
+
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
