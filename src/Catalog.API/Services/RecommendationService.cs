@@ -19,7 +19,8 @@ public sealed class RecommendationService(
 
     public async Task RecordViewAsync(string userId, int itemId, CancellationToken cancellationToken = default)
     {
-        var key = $"{KeyPrefix}{userId}";
+        var validatedUserId = CatalogSecurity.ValidateUserId(userId);
+        var key = GetBrowsingHistoryKey(validatedUserId);
         var entry = JsonSerializer.Serialize(new BrowsingHistoryItem(itemId, DateTime.UtcNow), s_jsonOptions);
         var config = options.Value;
 
@@ -32,7 +33,7 @@ public sealed class RecommendationService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to record browsing history for user {UserId}, item {ItemId}", userId, itemId);
+            logger.LogError(ex, "Failed to record browsing history for user {UserId}, item {ItemId}", SanitizeUserIdForLogging(validatedUserId), itemId);
         }
     }
 
@@ -42,16 +43,17 @@ public sealed class RecommendationService(
         int pageSize,
         CancellationToken cancellationToken = default)
     {
+        var validatedUserId = CatalogSecurity.ValidateUserId(userId);
         var config = options.Value;
         List<BrowsingHistoryItem> history;
 
         try
         {
-            history = await GetBrowsingHistoryAsync(userId);
+            history = await GetBrowsingHistoryAsync(validatedUserId);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to fetch browsing history for user {UserId}, returning newest items", userId);
+            logger.LogWarning(ex, "Failed to fetch browsing history for user {UserId}, returning newest items", SanitizeUserIdForLogging(validatedUserId));
             return await GetNewestItemsAsync(pageIndex, pageSize, [], cancellationToken);
         }
 
@@ -70,7 +72,7 @@ public sealed class RecommendationService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "AI recommendation failed for user {UserId}, falling back to type-based", userId);
+                logger.LogWarning(ex, "AI recommendation failed for user {UserId}, falling back to type-based", SanitizeUserIdForLogging(validatedUserId));
             }
         }
 
@@ -79,7 +81,7 @@ public sealed class RecommendationService(
 
     private async Task<List<BrowsingHistoryItem>> GetBrowsingHistoryAsync(string userId)
     {
-        var key = $"{KeyPrefix}{userId}";
+        var key = GetBrowsingHistoryKey(userId);
         var db = redis.GetDatabase();
         var values = await db.ListRangeAsync(key, 0, options.Value.MaxHistoryLength - 1);
 
@@ -108,7 +110,7 @@ public sealed class RecommendationService(
         var sampleItemIds = history
             .Select(h => h.ItemId)
             .Distinct()
-            .Take(config.CentroidSampleSize)
+            .Take(GetConfiguredCentroidSampleSize(config))
             .ToList();
 
         // Fetch embeddings for sample items
@@ -216,4 +218,13 @@ public sealed class RecommendationService(
 
         return new PaginatedItems<CatalogItem>(pageIndex, pageSize, totalItems, items);
     }
+
+    /// <summary>
+    /// Validates user identifiers before building Redis keys so malformed claims cannot create ambiguous or hostile cache entries.
+    /// </summary>
+    private static string GetBrowsingHistoryKey(string userId) => $"{KeyPrefix}{CatalogSecurity.ValidateUserId(userId)}";
+
+    private static string SanitizeUserIdForLogging(string userId) => CatalogSecurity.FormatUserIdForLogging(userId);
+
+    private static int GetConfiguredCentroidSampleSize(RecommendationOptions config) => config.CentroidSampleSize;
 }

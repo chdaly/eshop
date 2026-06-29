@@ -163,8 +163,17 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
-        }
+        },
+        "security": [
+          { }
+        ]
       },
       "put": {
         "tags": [
@@ -200,7 +209,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CatalogItem"
+                "$ref": "#/components/schemas/UpdateCatalogItemRequest"
               }
             }
           },
@@ -229,8 +238,17 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
-        }
+        },
+        "security": [
+          { }
+        ]
       }
     },
     "/api/catalog/items/{id}/pic": {
@@ -473,8 +491,17 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
-        }
+        },
+        "security": [
+          { }
+        ]
       },
       "get": {
         "tags": [
@@ -882,6 +909,99 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "UpdateCatalogItemRequest": {
+        "required": [
+          "name",
+          "description",
+          "price",
+          "pictureFileName",
+          "catalogTypeId",
+          "catalogBrandId",
+          "availableStock",
+          "restockThreshold",
+          "maxStockThreshold"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "price": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "pictureFileName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "catalogTypeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "catalogBrandId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "availableStock": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "restockThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxStockThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "implicit": {
+            "authorizationUrl": "http://identity-api/connect/authorize",
+            "tokenUrl": "http://identity-api/connect/token",
+            "scopes": {
+              "catalog": "Catalog API"
+            }
           }
         }
       }

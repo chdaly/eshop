@@ -3,7 +3,9 @@
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace eShop.Catalog.FunctionalTests;
 
@@ -31,7 +33,13 @@ public sealed class CatalogApiFixture : WebApplicationFactory<Program>, IAsyncLi
             config.AddInMemoryCollection(new Dictionary<string, string>
             {
                 { $"ConnectionStrings:{Postgres.Resource.Name}", _postgresConnectionString },
-                });
+                { "Identity:Url", "http://localhost" },
+                { "Identity:Audience", "catalog" },
+            });
+        });
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<IStartupFilter>(new AutoAuthorizeStartupFilter());
         });
         return base.CreateHost(builder);
     }
@@ -54,5 +62,17 @@ public sealed class CatalogApiFixture : WebApplicationFactory<Program>, IAsyncLi
     {
         await _app.StartAsync();
         _postgresConnectionString = await Postgres.Resource.GetConnectionStringAsync();
+    }
+
+    private sealed class AutoAuthorizeStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
+        {
+            return builder =>
+            {
+                builder.UseMiddleware<AutoAuthorizeMiddleware>();
+                next(builder);
+            };
+        }
     }
 }

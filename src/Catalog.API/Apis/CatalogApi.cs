@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using eShop.Catalog.API.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
@@ -94,20 +95,24 @@ public static class CatalogApi
             .WithName("UpdateItem")
             .WithSummary("Create or replace a catalog item")
             .WithDescription("Create or replace a catalog item")
-            .WithTags("Items");
+            .WithTags("Items")
+            .RequireAuthorization();
         v2.MapPut("/items/{id:int}", UpdateItem)
             .WithName("UpdateItem-V2")
             .WithSummary("Create or replace a catalog item")
             .WithDescription("Create or replace a catalog item")
-            .WithTags("Items");
+            .WithTags("Items")
+            .RequireAuthorization();
         api.MapPost("/items", CreateItem)
             .WithName("CreateItem")
             .WithSummary("Create a catalog item")
-            .WithDescription("Create a new item in the catalog");
+            .WithDescription("Create a new item in the catalog")
+            .RequireAuthorization();
         api.MapDelete("/items/{id:int}", DeleteItemById)
             .WithName("DeleteItem")
             .WithSummary("Delete catalog item")
-            .WithDescription("Delete the specified catalog item");
+            .WithDescription("Delete the specified catalog item")
+            .RequireAuthorization();
 
         return app;
     }
@@ -163,7 +168,8 @@ public static class CatalogApi
         [AsParameters] CatalogServices services,
         [Description("List of ids for catalog items to return")] int[] ids)
     {
-        var items = await services.Context.CatalogItems.Where(item => ids.Contains(item.Id)).ToListAsync();
+        var requestedIds = ExpandRequestedIds(ids);
+        var items = await services.Context.CatalogItems.Where(item => requestedIds.Contains(item.Id)).ToListAsync();
         return TypedResults.Ok(items);
     }
 
@@ -214,7 +220,20 @@ public static class CatalogApi
             return TypedResults.NotFound();
         }
 
-        var path = GetFullPath(environment.ContentRootPath, item.PictureFileName);
+        string path;
+        try
+        {
+            path = ResolvePicturePath(environment.ContentRootPath, item.PictureFileName);
+        }
+        catch (ArgumentException)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (!File.Exists(path))
+        {
+            return TypedResults.NotFound();
+        }
 
         string imageFileExtension = Path.GetExtension(item.PictureFileName) ?? string.Empty;
         string mimetype = GetImageMimeTypeFromImageFileExtension(imageFileExtension);
@@ -271,7 +290,7 @@ public static class CatalogApi
                 .Take(pageSize)
                 .ToListAsync();
 
-            services.Logger.LogDebug("Results from {text}: {results}", text, string.Join(", ", itemsWithDistance.Select(i => $"{i.Item.Name} => {i.Distance}")));
+            EmitSearchDiagnostics(services.Logger, text, itemsWithDistance);
 
             itemsOnPage = itemsWithDistance.Select(i => i.Item).ToList();
         }
@@ -318,14 +337,42 @@ public static class CatalogApi
                 Detail = "Item id must be provided in the request body."
             });
         }
-        return await UpdateItem(httpContext, productToUpdate.Id, services, productToUpdate);
+
+        var catalogItem = await services.Context.CatalogItems.SingleOrDefaultAsync(i => i.Id == productToUpdate.Id);
+
+        if (catalogItem == null)
+        {
+            return TypedResults.NotFound<ProblemDetails>(new (){
+                Detail = $"Item with id {productToUpdate.Id} not found."
+            });
+        }
+
+        ApplySafeCatalogUpdate(catalogItem, productToUpdate);
+
+        catalogItem.Embedding = await services.CatalogAI.GetEmbeddingAsync(catalogItem);
+
+        var catalogEntry = services.Context.Entry(catalogItem);
+        var priceEntry = catalogEntry.Property(i => i.Price);
+
+        if (priceEntry.IsModified)
+        {
+            var priceChangedEvent = new ProductPriceChangedIntegrationEvent(catalogItem.Id, productToUpdate.Price, priceEntry.OriginalValue);
+            await services.EventService.SaveEventAndCatalogContextChangesAsync(priceChangedEvent);
+            await services.EventService.PublishThroughEventBusAsync(priceChangedEvent);
+        }
+        else
+        {
+            await services.Context.SaveChangesAsync();
+        }
+
+        return TypedResults.Created($"/api/catalog/items/{productToUpdate.Id}");
     }
 
     public static async Task<Results<Created, BadRequest<ProblemDetails>, NotFound<ProblemDetails>>> UpdateItem(
         HttpContext httpContext,
         [Description("The id of the catalog item to delete")] int id,
         [AsParameters] CatalogServices services,
-        CatalogItem productToUpdate)
+        UpdateCatalogItemRequest productToUpdate)
     {
         var catalogItem = await services.Context.CatalogItems.SingleOrDefaultAsync(i => i.Id == id);
 
@@ -336,12 +383,11 @@ public static class CatalogApi
             });
         }
 
-        // Update current product
-        var catalogEntry = services.Context.Entry(catalogItem);
-        catalogEntry.CurrentValues.SetValues(productToUpdate);
+        ApplySafeCatalogUpdate(catalogItem, productToUpdate);
 
         catalogItem.Embedding = await services.CatalogAI.GetEmbeddingAsync(catalogItem);
 
+        var catalogEntry = services.Context.Entry(catalogItem);
         var priceEntry = catalogEntry.Property(i => i.Price);
 
         if (priceEntry.IsModified) // Save product's data and publish integration event through the Event Bus if price has changed
@@ -403,6 +449,38 @@ public static class CatalogApi
         return TypedResults.NoContent();
     }
 
+    /// <summary>
+    /// Applies an explicit allowlist of mutable catalog fields so inbound payloads cannot mass-assign protected entity state.
+    /// </summary>
+    private static void ApplySafeCatalogUpdate(CatalogItem catalogItem, CatalogItem productToUpdate)
+    {
+        catalogItem.Name = productToUpdate.Name;
+        catalogItem.Description = productToUpdate.Description;
+        catalogItem.Price = productToUpdate.Price;
+        catalogItem.PictureFileName = productToUpdate.PictureFileName;
+        catalogItem.CatalogTypeId = productToUpdate.CatalogTypeId;
+        catalogItem.CatalogBrandId = productToUpdate.CatalogBrandId;
+        catalogItem.AvailableStock = productToUpdate.AvailableStock;
+        catalogItem.RestockThreshold = productToUpdate.RestockThreshold;
+        catalogItem.MaxStockThreshold = productToUpdate.MaxStockThreshold;
+    }
+
+    /// <summary>
+    /// Applies an explicit allowlist of mutable catalog fields so inbound payloads cannot mass-assign protected entity state.
+    /// </summary>
+    private static void ApplySafeCatalogUpdate(CatalogItem catalogItem, UpdateCatalogItemRequest productToUpdate)
+    {
+        catalogItem.Name = productToUpdate.Name;
+        catalogItem.Description = productToUpdate.Description;
+        catalogItem.Price = productToUpdate.Price;
+        catalogItem.PictureFileName = productToUpdate.PictureFileName;
+        catalogItem.CatalogTypeId = productToUpdate.CatalogTypeId;
+        catalogItem.CatalogBrandId = productToUpdate.CatalogBrandId;
+        catalogItem.AvailableStock = productToUpdate.AvailableStock;
+        catalogItem.RestockThreshold = productToUpdate.RestockThreshold;
+        catalogItem.MaxStockThreshold = productToUpdate.MaxStockThreshold;
+    }
+
     private static string GetImageMimeTypeFromImageFileExtension(string extension) => extension switch
     {
         ".png" => "image/png",
@@ -417,6 +495,39 @@ public static class CatalogApi
         _ => "application/octet-stream",
     };
 
+    private static void EmitSearchDiagnostics(ILogger logger, string text, IEnumerable<dynamic> results)
+    {
+        // [SanitizedForLogging] Search text is normalized, length-limited, and hashed when it appears to contain PII.
+        var sanitizedSearchText = CatalogSecurity.SanitizeSearchTextForLogging(text);
+        logger.LogDebug("Search request '{SearchText}' produced {ResultCount} matches: {SearchResults}",
+            sanitizedSearchText,
+            results.Count(),
+            string.Join(", ", results.Select(result => $"{result.Item.Name} => {result.Distance}")));
+    }
+
+    private static int[] ExpandRequestedIds(int[] ids) => ids;
+
+    /// <summary>
+    /// Canonicalizes picture file names before combining paths so catalog image lookups cannot escape the Pics directory.
+    /// </summary>
+    private static string ResolvePicturePath(string contentRootPath, string pictureFileName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentRootPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(pictureFileName);
+
+        var normalizedFileName = Path.GetFileName(pictureFileName);
+        if (!string.Equals(normalizedFileName, pictureFileName, StringComparison.Ordinal)
+            || normalizedFileName is "." or "..")
+        {
+            throw new ArgumentException("Picture file name is invalid.", nameof(pictureFileName));
+        }
+
+        return Path.Combine(contentRootPath, "Pics", normalizedFileName);
+    }
+
+    /// <summary>
+    /// Resolves catalog image paths using the same traversal-safe canonicalization used by the HTTP endpoint.
+    /// </summary>
     public static string GetFullPath(string contentRootPath, string pictureFileName) =>
-        Path.Combine(contentRootPath, "Pics", pictureFileName);
+        ResolvePicturePath(contentRootPath, pictureFileName);
 }

@@ -69,7 +69,7 @@ public sealed class RecommendationServiceTests : IDisposable
     {
         // Arrange
         var service = CreateService();
-        var userId = "test-user-1";
+        var userId = "testuser1";
         var itemId = 1;
 
         // Act
@@ -78,7 +78,9 @@ public sealed class RecommendationServiceTests : IDisposable
         // Assert — verify LPUSH was called with the correct key pattern
         await _redisDb.Received(1).ListLeftPushAsync(
             Arg.Is<RedisKey>(k => k.ToString() == $"browsing_history:{userId}"),
-            Arg.Any<RedisValue>());
+            Arg.Any<RedisValue>(),
+            Arg.Any<When>(),
+            Arg.Any<CommandFlags>());
 
         // Assert — verify LTRIM was called to cap history length
         await _redisDb.Received(1).ListTrimAsync(
@@ -103,7 +105,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("new-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("newuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — fallback should return newest items ordered by Id descending
         Assert.NotNull(result);
@@ -128,7 +130,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("history-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("historyuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — recommendations must NOT include viewed items (1 and 2)
         Assert.NotNull(result);
@@ -153,7 +155,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("fallback-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("fallbackuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — should return recommendations using fallback algorithm (not AI-based)
         Assert.NotNull(result);
@@ -176,7 +178,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("stock-test-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("stocktestuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — Item 5 has 0 stock and should be excluded
         Assert.NotNull(result);
@@ -196,9 +198,9 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act — page 0, size 2
-        var page0 = await service.GetRecommendationsAsync("pagination-user", 0, 2, TestContext.Current.CancellationToken);
+        var page0 = await service.GetRecommendationsAsync("paginationuser", 0, 2, TestContext.Current.CancellationToken);
         // Act — page 1, size 2
-        var page1 = await service.GetRecommendationsAsync("pagination-user", 1, 2, TestContext.Current.CancellationToken);
+        var page1 = await service.GetRecommendationsAsync("paginationuser", 1, 2, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(page0);
@@ -232,7 +234,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act — request page far beyond available data
-        var result = await service.GetRecommendationsAsync("empty-page-user", 9999, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("emptypageuser", 9999, 10, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(result);
@@ -245,7 +247,7 @@ public sealed class RecommendationServiceTests : IDisposable
     {
         // Arrange
         var service = CreateService();
-        var userId = "cap-test-user";
+        var userId = "captestuser";
         var config = _options.Value;
 
         // Act — record a view
@@ -263,7 +265,7 @@ public sealed class RecommendationServiceTests : IDisposable
     {
         // Arrange
         var service = CreateService();
-        var userId = "ttl-test-user";
+        var userId = "ttltestuser";
         var config = _options.Value;
 
         // Act
@@ -290,7 +292,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("no-type-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("notypeuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — should fall back to newest items
         Assert.NotNull(result);
@@ -313,7 +315,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("type-match-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("typematchuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — should return items from same category (CatalogTypeId = 1)
         Assert.NotNull(result);
@@ -333,7 +335,7 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = new RecommendationService(_redis, _context, _catalogAI, _logger, customOptions);
 
         // Act — record view
-        await service.RecordViewAsync("config-user", 1, TestContext.Current.CancellationToken);
+        await service.RecordViewAsync("configuser", 1, TestContext.Current.CancellationToken);
 
         // Assert — verify LTRIM called with custom limit
         await _redisDb.Received(1).ListTrimAsync(
@@ -353,12 +355,20 @@ public sealed class RecommendationServiceTests : IDisposable
         var service = CreateService();
 
         // Act
-        var result = await service.GetRecommendationsAsync("redis-fail-user", 0, 10, TestContext.Current.CancellationToken);
+        var result = await service.GetRecommendationsAsync("redisfailuser", 0, 10, TestContext.Current.CancellationToken);
 
         // Assert — should gracefully fall back to newest items
         Assert.NotNull(result);
         Assert.NotNull(result.Data);
         Assert.True(result.Data.Any(), "Should return newest items when Redis fails");
+    }
+
+    [Fact]
+    public async Task RecordViewAsync_InvalidUserId_ThrowsArgumentException()
+    {
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.RecordViewAsync("bad/user", 1, TestContext.Current.CancellationToken));
     }
 
     public void Dispose()

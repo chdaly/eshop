@@ -89,6 +89,19 @@ public sealed class RecommendationApiTests : IClassFixture<RecommendationApiFixt
     }
 
     [Fact]
+    public async Task RecordProductView_InvalidUserId_ReturnsBadRequest()
+    {
+        var httpClient = CreateAuthenticatedClient(new ApiVersion(1.0), "bad/user");
+
+        var response = await httpClient.PostAsJsonAsync(
+            "/api/catalog/recommendations/view",
+            new { ItemId = 1 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task GetRecommendations_WithViewHistory_ReturnsRecommendationsExcludingViewedItems()
     {
         // Arrange — use a unique user to avoid cross-test contamination

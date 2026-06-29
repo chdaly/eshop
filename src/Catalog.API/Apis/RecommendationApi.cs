@@ -34,8 +34,7 @@ public static class RecommendationApi
     public static async Task<Results<NoContent, NotFound, BadRequest<ProblemDetails>, UnauthorizedHttpResult>> RecordView(
         HttpContext httpContext,
         CatalogContext context,
-        [FromServices] IRecommendationService recommendationService,
-        ILogger<RecommendationService> logger,
+        [FromServices] IViewTrackingQueue viewTrackingQueue,
         [FromBody] RecordProductViewRequest request)
     {
         if (request.ItemId <= 0)
@@ -52,30 +51,31 @@ public static class RecommendationApi
             return TypedResults.Unauthorized();
         }
 
+        try
+        {
+            userId = CatalogSecurity.ValidateUserId(userId);
+        }
+        catch (ArgumentException ex)
+        {
+            return TypedResults.BadRequest<ProblemDetails>(new()
+            {
+                Detail = ex.Message
+            });
+        }
+
         var item = await context.CatalogItems.FindAsync(request.ItemId);
         if (item is null)
         {
             return TypedResults.NotFound();
         }
 
-        // Fire-and-forget: record view without blocking the response
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await recommendationService.RecordViewAsync(userId, request.ItemId);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to record product view for user {UserId}, item {ItemId}", userId, request.ItemId);
-            }
-        });
+        await viewTrackingQueue.QueueAsync(new ViewTrackingWorkItem(userId, request.ItemId), httpContext.RequestAborted);
 
         return TypedResults.NoContent();
     }
 
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
-    public static async Task<Results<Ok<PaginatedItems<CatalogItem>>, UnauthorizedHttpResult>> GetRecommendations(
+    public static async Task<Results<Ok<PaginatedItems<CatalogItem>>, BadRequest<ProblemDetails>, UnauthorizedHttpResult>> GetRecommendations(
         HttpContext httpContext,
         [FromServices] IRecommendationService recommendationService,
         [AsParameters] PaginationRequest paginationRequest)
@@ -84,6 +84,18 @@ public static class RecommendationApi
         if (userId is null)
         {
             return TypedResults.Unauthorized();
+        }
+
+        try
+        {
+            userId = CatalogSecurity.ValidateUserId(userId);
+        }
+        catch (ArgumentException ex)
+        {
+            return TypedResults.BadRequest<ProblemDetails>(new()
+            {
+                Detail = ex.Message
+            });
         }
 
         var recommendations = await recommendationService.GetRecommendationsAsync(

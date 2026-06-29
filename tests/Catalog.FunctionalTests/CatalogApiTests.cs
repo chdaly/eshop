@@ -1,7 +1,9 @@
-﻿using System.Net.Http.Json;
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Asp.Versioning;
 using Asp.Versioning.Http;
+using eShop.Catalog.API;
 using eShop.Catalog.API.Model;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -21,6 +23,13 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
     {
         var handler = new ApiVersionHandler(new QueryStringApiVersionWriter(), apiVersion);
         return _webApplicationFactory.CreateDefaultClient(handler);
+    }
+
+    private HttpClient CreateAuthenticatedClient(ApiVersion apiVersion, string userId = AutoAuthorizeMiddleware.IDENTITY_ID)
+    {
+        var client = CreateHttpClient(apiVersion);
+        client.DefaultRequestHeaders.Add(AutoAuthorizeMiddleware.UserIdHeaderName, userId);
+        return client;
     }
 
     [Theory]
@@ -49,7 +58,7 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
     [InlineData(2.0)]
     public async Task UpdateCatalogItemWorksWithoutPriceUpdate(double version)
     {
-        var _httpClient = CreateHttpClient(new ApiVersion(version));
+        var _httpClient = CreateAuthenticatedClient(new ApiVersion(version));
 
         // Act - 1
         var response = await _httpClient.GetAsync("/api/catalog/items/1", TestContext.Current.CancellationToken);
@@ -60,10 +69,20 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
         // Act - 2
         var priorAvailableStock = itemToUpdate.AvailableStock;
         itemToUpdate.AvailableStock -= 1;
+        var updateRequest = new UpdateCatalogItemRequest(
+            itemToUpdate.Name,
+            itemToUpdate.Description,
+            itemToUpdate.Price,
+            itemToUpdate.PictureFileName,
+            itemToUpdate.CatalogTypeId,
+            itemToUpdate.CatalogBrandId,
+            itemToUpdate.AvailableStock,
+            itemToUpdate.RestockThreshold,
+            itemToUpdate.MaxStockThreshold);
         response = version switch
         {
-            1.0 => await _httpClient.PutAsJsonAsync("/api/catalog/items", itemToUpdate, TestContext.Current.CancellationToken),
-            2.0 => await _httpClient.PutAsJsonAsync($"/api/catalog/items/{itemToUpdate.Id}", itemToUpdate, TestContext.Current.CancellationToken),
+            1.0 => await _httpClient.PutAsJsonAsync("/api/catalog/items", updateRequest, TestContext.Current.CancellationToken),
+            2.0 => await _httpClient.PutAsJsonAsync($"/api/catalog/items/{itemToUpdate.Id}", updateRequest, TestContext.Current.CancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(version), version, null)
         };
         response.EnsureSuccessStatusCode();
@@ -84,7 +103,7 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
     [InlineData(2.0)]
     public async Task UpdateCatalogItemWorksWithPriceUpdate(double version)
     {
-        var _httpClient = CreateHttpClient(new ApiVersion(version));
+        var _httpClient = CreateAuthenticatedClient(new ApiVersion(version));
 
         // Act - 1
         var response = await _httpClient.GetAsync("/api/catalog/items/1", TestContext.Current.CancellationToken);
@@ -96,10 +115,20 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
         var priorAvailableStock = itemToUpdate.AvailableStock;
         itemToUpdate.AvailableStock -= 1;
         itemToUpdate.Price = 1.99m;
+        var updateRequest = new UpdateCatalogItemRequest(
+            itemToUpdate.Name,
+            itemToUpdate.Description,
+            itemToUpdate.Price,
+            itemToUpdate.PictureFileName,
+            itemToUpdate.CatalogTypeId,
+            itemToUpdate.CatalogBrandId,
+            itemToUpdate.AvailableStock,
+            itemToUpdate.RestockThreshold,
+            itemToUpdate.MaxStockThreshold);
         response = version switch
         {
-            1.0 => await _httpClient.PutAsJsonAsync("/api/catalog/items", itemToUpdate, TestContext.Current.CancellationToken),
-            2.0 => await _httpClient.PutAsJsonAsync($"/api/catalog/items/{itemToUpdate.Id}", itemToUpdate, TestContext.Current.CancellationToken),
+            1.0 => await _httpClient.PutAsJsonAsync("/api/catalog/items", updateRequest, TestContext.Current.CancellationToken),
+            2.0 => await _httpClient.PutAsJsonAsync($"/api/catalog/items/{itemToUpdate.Id}", updateRequest, TestContext.Current.CancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(version), version, null)
         };
         response.EnsureSuccessStatusCode();
@@ -358,7 +387,7 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
     [InlineData(2.0)]
     public async Task AddCatalogItem(double version)
     {
-        var _httpClient = CreateHttpClient(new ApiVersion(version));
+        var _httpClient = CreateAuthenticatedClient(new ApiVersion(version));
 
         var id = version switch {
             1.0 => 10015,
@@ -400,7 +429,7 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
     [InlineData(2.0)]
     public async Task DeleteCatalogItem(double version)
     {
-        var _httpClient = CreateHttpClient(new ApiVersion(version));
+        var _httpClient = CreateAuthenticatedClient(new ApiVersion(version));
 
         var id = version switch {
             1.0 => 5,
@@ -419,5 +448,113 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
         // Assert - 1
         Assert.Equal("NoContent", response.StatusCode.ToString());
         Assert.Equal("NotFound", responseStatus.ToString());
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public async Task CreateCatalogItemRequiresAuthentication(double version)
+    {
+        var httpClient = CreateHttpClient(new ApiVersion(version));
+
+        var bodyContent = new CatalogItem("SecurityTestCatalog")
+        {
+            Id = 99999,
+            Description = "Security test item",
+            Price = 9.99m,
+            PictureFileName = null,
+            CatalogTypeId = 8,
+            CatalogBrandId = 13,
+            AvailableStock = 10,
+            RestockThreshold = 5,
+            MaxStockThreshold = 20,
+            OnReorder = false
+        };
+
+        var response = await httpClient.PostAsJsonAsync("/api/catalog/items", bodyContent, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public async Task UpdateCatalogItemRequiresAuthentication(double version)
+    {
+        var httpClient = CreateHttpClient(new ApiVersion(version));
+
+        var updateRequest = new UpdateCatalogItemRequest(
+            "Updated Security Item",
+            "Updated security description",
+            19.99m,
+            null,
+            8,
+            13,
+            8,
+            5,
+            20);
+
+        var response = version switch
+        {
+            1.0 => await httpClient.PutAsJsonAsync("/api/catalog/items", updateRequest, TestContext.Current.CancellationToken),
+            2.0 => await httpClient.PutAsJsonAsync("/api/catalog/items/1", updateRequest, TestContext.Current.CancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(version), version, null)
+        };
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public async Task DeleteCatalogItemRequiresAuthentication(double version)
+    {
+        var httpClient = CreateHttpClient(new ApiVersion(version));
+
+        var response = await httpClient.DeleteAsync("/api/catalog/items/1", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateCatalogItemIgnoresInternalFields()
+    {
+        var httpClient = CreateAuthenticatedClient(new ApiVersion(2.0));
+
+        var response = await httpClient.GetAsync("/api/catalog/items/1", TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var itemToUpdate = JsonSerializer.Deserialize<CatalogItem>(body, _jsonSerializerOptions);
+
+        var updatePayload = new
+        {
+            Name = itemToUpdate.Name,
+            Description = itemToUpdate.Description,
+            Price = itemToUpdate.Price,
+            PictureFileName = itemToUpdate.PictureFileName,
+            CatalogTypeId = itemToUpdate.CatalogTypeId,
+            CatalogBrandId = itemToUpdate.CatalogBrandId,
+            AvailableStock = itemToUpdate.AvailableStock,
+            RestockThreshold = itemToUpdate.RestockThreshold,
+            MaxStockThreshold = itemToUpdate.MaxStockThreshold,
+            Embedding = new[] { 0.1, 0.2, 0.3 },
+            OnReorder = true
+        };
+
+        response = await httpClient.PutAsJsonAsync($"/api/catalog/items/{itemToUpdate.Id}", updatePayload, TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        response = await httpClient.GetAsync($"/api/catalog/items/{itemToUpdate.Id}", TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+        body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var updatedItem = JsonSerializer.Deserialize<CatalogItem>(body, _jsonSerializerOptions);
+
+        Assert.Equal(itemToUpdate.OnReorder, updatedItem.OnReorder);
+    }
+
+    [Fact]
+    public void GetFullPathRejectsPathTraversal()
+    {
+        Assert.Throws<ArgumentException>(() => CatalogApi.GetFullPath(@"C:\catalog", @"..\secrets.txt"));
     }
 }

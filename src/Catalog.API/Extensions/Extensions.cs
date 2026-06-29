@@ -54,6 +54,9 @@ public static class Extensions
         // Recommendation services
         builder.Services.AddOptions<RecommendationOptions>()
             .BindConfiguration(nameof(RecommendationOptions));
+        builder.Services.AddSingleton<ViewTrackingBackgroundService>();
+        builder.Services.AddSingleton<IViewTrackingQueue>(serviceProvider => serviceProvider.GetRequiredService<ViewTrackingBackgroundService>());
+        builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ViewTrackingBackgroundService>());
         builder.Services.AddScoped<IRecommendationService, RecommendationService>();
     }
 }
